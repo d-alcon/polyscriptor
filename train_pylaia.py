@@ -1,7 +1,12 @@
 """
-Train PyLaia CRNN model for Efendiev dataset with optimized hyperparameters.
+Train a Puigcerver CRNN model for historical manuscript HTR.
 
-Based on Transkribus PyLaia advanced parameters.
+Implements the CRNN architecture from Puigcerver (2017) "Are Multidimensional
+Recurrent Layers Really Necessary for Handwritten Text Recognition?"
+(https://arxiv.org/abs/1707.08410), the same design used in PyLaia and Transkribus.
+This is a clean-room PyTorch reimplementation — the PyLaia package is not required.
+
+Originally adapted for the Efendiev dataset; now used for all Cyrillic scripts.
 
 Usage:
     python train_pylaia.py
@@ -44,8 +49,8 @@ class PyLaiaDataset(Dataset):
     ):
         """
         Args:
-            data_dir: Directory containing images/, gt/, lines.txt, symbols.txt
-            list_file: Name of file containing list of sample IDs
+            data_dir: Directory containing lines.txt, symbols.txt, and image files
+            list_file: Name of file listing samples (supports space or CSV format)
             symbols_file: Name of vocabulary file
             img_height: Target image height (128 from Transkribus)
             augment: Apply data augmentation
@@ -54,7 +59,12 @@ class PyLaiaDataset(Dataset):
         self.img_height = img_height
         self.augment = augment
 
-        # Load list of samples (new format: "image_path.png text")
+        # Load list of samples from lines.txt.
+        # Supports two formats (auto-detected per line):
+        #   Space:  "line_images/my_image.png transcription text"
+        #   CSV:    "line_images/my_image.png,transcription text"
+        # CRITICAL: Filenames can contain spaces, so we split on ".png " or ".png,"
+        # not on the first space or comma.
         list_path = self.data_dir / list_file
         self.samples = []  # List of (image_path, text) tuples
         with open(list_path, 'r', encoding='utf-8') as f:
@@ -62,14 +72,16 @@ class PyLaiaDataset(Dataset):
                 line = line.strip()
                 if not line:
                     continue
-                # CRITICAL: Filenames can contain spaces! Split on ".png " not first space
-                # Example: "line_images/0210_apo_2023-06-20 11_09_01_line.png кꙋскѝ жꙋючѝ"
-                if '.png ' in line:
+                if '.png,' in line:
+                    img_path, text = line.split('.png,', 1)
+                    img_path = img_path + '.png'
+                    self.samples.append((img_path, text))
+                elif '.png ' in line:
                     img_path, text = line.split('.png ', 1)
-                    img_path = img_path + '.png'  # Add back the extension
+                    img_path = img_path + '.png'
                     self.samples.append((img_path, text))
                 else:
-                    logger.warning(f"Skipping malformed line (no '.png '): {line[:100]}")
+                    logger.warning(f"Skipping malformed line (no '.png,' or '.png '): {line[:100]}")
         
         # Load vocabulary (handle both list and KALDI formats)
         symbols_path = self.data_dir / symbols_file
