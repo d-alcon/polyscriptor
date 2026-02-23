@@ -144,6 +144,7 @@ CLAUDE.md
 # Internal planning documents (not for public repo)
 *_PLAN.md
 *_PLAN_*.md
+*_INTEGRATION.md
 IMPLEMENTATION_SUMMARY.md
 PARTY_FIX_TESTING.md
 PARTY_POC_VS_PLUGIN_COMPARISON.md
