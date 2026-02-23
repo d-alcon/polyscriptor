@@ -10,7 +10,7 @@ A comprehensive toolkit for training and comparing different Handwritten Text Re
 
 ### Multiple HTR Engines
 - **TrOCR**: Transformer-based OCR (line-level)
-- **CRNN-CTC**: Puigcerver CRNN with CTC decoding (line-level)
+- **CRNN-CTC**: Puigcerver CRNN with CTC decoding (line-level, PyLaia-inspired)
 - **Qwen3-VL**: Vision-Language Model (line/page-level, custom prompts)
 - **LightOnOCR**: Lightweight VLM (~4GB VRAM, line-level, fine-tuned variants)
 - **Churro**: Qwen fork, experimental (line/page-level, custom prompts)
