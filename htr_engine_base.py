@@ -2,7 +2,7 @@
 HTR Engine Plugin System - Base Classes and Registry
 
 This module defines the plugin architecture for HTR (Handwritten Text Recognition) engines.
-All HTR engines (TrOCR, Qwen3, PyLaia, Kraken, etc.) implement the HTREngine interface.
+All HTR engines (TrOCR, Qwen3, CRNN-CTC, Kraken, etc.) implement the HTREngine interface.
 
 Design principles:
 - Abstraction: Each engine is self-contained and interchangeable
@@ -161,7 +161,7 @@ class HTREngine(ABC):
         """Check if engine requires pre-segmented lines or can process full pages.
 
         Returns:
-            bool: True if lines must be segmented first (TrOCR, PyLaia),
+            bool: True if lines must be segmented first (TrOCR, CRNN-CTC),
                   False if engine handles full pages (Qwen3, Commercial APIs)
         """
         return True  # Default: most engines need line segmentation
@@ -188,6 +188,14 @@ class HTREngine(ABC):
             bool: True if transcribe_lines() is optimized, False if it just loops
         """
         return False
+
+    def get_aliases(self) -> List[str]:
+        """Get alternative names for this engine (e.g., short CLI aliases).
+
+        Returns:
+            List[str]: Alternative names accepted by the registry (default: none)
+        """
+        return []
 
     def get_capabilities(self) -> Dict[str, bool]:
         """Get engine capabilities.
@@ -227,6 +235,8 @@ class HTREngineRegistry:
         """
         self.engines.append(engine)
         self._engine_cache[engine.get_name()] = engine
+        for alias in engine.get_aliases():
+            self._engine_cache[alias] = engine
 
     def discover_engines(self):
         """Automatically discover and register all available engines.
@@ -254,12 +264,12 @@ class HTREngineRegistry:
         except ImportError as e:
             print(f"Warning: Failed to load Churro engine: {e}")
 
-        # Import and register PyLaia engine
+        # Import and register CRNN-CTC engine
         try:
             from engines.pylaia_engine import PyLaiaEngine
             self.register(PyLaiaEngine())
         except ImportError as e:
-            print(f"Warning: Failed to load PyLaia engine: {e}")
+            print(f"Warning: Failed to load CRNN-CTC engine: {e}")
 
         # Import and register Kraken engine
         try:

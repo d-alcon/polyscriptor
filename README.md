@@ -1,6 +1,6 @@
 # Multi-Engine HTR Training & Comparison Tool
 
-A comprehensive toolkit for training and comparing different Handwritten Text Recognition (HTR) engines on historical manuscript datasets. Supports TrOCR, PyLaia, Qwen3-VL, LightOnOCR, Party, and Kraken engines with a unified GUI interface.
+A comprehensive toolkit for training and comparing different Handwritten Text Recognition (HTR) engines on historical manuscript datasets. Supports TrOCR, CRNN-CTC, Qwen3-VL, LightOnOCR, Party, and Kraken engines with a unified GUI interface.
 
 **Primary Focus:** Cyrillic manuscripts (Russian, Ukrainian, Church Slavonic, Glagolitic)
 
@@ -10,7 +10,7 @@ A comprehensive toolkit for training and comparing different Handwritten Text Re
 
 ### Multiple HTR Engines
 - **TrOCR**: Transformer-based OCR (line-level)
-- **PyLaia**: CTC-based CRNN (line-level)
+- **CRNN-CTC**: Puigcerver CRNN with CTC decoding (line-level)
 - **Qwen3-VL**: Vision-Language Model (line/page-level, custom prompts)
 - **LightOnOCR**: Lightweight VLM (~4GB VRAM, line-level, fine-tuned variants)
 - **Churro**: Qwen fork, experimental (line/page-level, custom prompts)
@@ -28,7 +28,7 @@ A comprehensive toolkit for training and comparing different Handwritten Text Re
 - **Export formats**: TXT, CSV, PAGE XML
 
 ### Training Pipelines (GPU required)
-- **PyLaia**: Custom CRNN training with PAGE XML support
+- **CRNN-CTC**: Custom CRNN training with PAGE XML support
 - **TrOCR**: Fine-tuning pipeline with image caching (10-50x faster)
 - **Data preparation**: Transkribus PAGE XML parser
 
@@ -84,14 +84,14 @@ python3 transcription_gui_plugin.py
 # More efficient than GUI for server workflows
 python3 batch_processing.py \
     --input-folder HTR_Images/my_folder \
-    --engine PyLaia \
-    --model-path models/pylaia_model/best_model.pt \
+    --engine crnn-ctc \
+    --model-path models/crnn_ctc_model/best_model.pt \
     --use-pagexml
 ```
 
 📖 **See [REMOTE_GUI_GUIDE.md](REMOTE_GUI_GUIDE.md)** for comprehensive remote access options (X11, VNC, CLI workflows)
 
-### 3. Train a Model (CLI, PyLaia Example)
+### 3. Train a Model (CLI, CRNN-CTC Example)
 
 ```bash
 # Step 1: Parse Transkribus PAGE XML export → CSV format
@@ -101,19 +101,19 @@ python3 transkribus_parser.py \
     --preserve-aspect-ratio \
     --target-height 128
 
-# Step 2: Convert CSV → PyLaia format (required!)
+# Step 2: Convert CSV → CRNN-CTC format (required!)
 python3 convert_to_pylaia.py \
     --input_csv ./data/my_dataset/train.csv \
-    --output_dir ./data/pylaia_train
+    --output_dir ./data/crnn_train
 
 python3 convert_to_pylaia.py \
     --input_csv ./data/my_dataset/val.csv \
-    --output_dir ./data/pylaia_val
+    --output_dir ./data/crnn_val
 
-# Step 3: Train PyLaia model
+# Step 3: Train CRNN-CTC model
 python3 train_pylaia.py \
-    --train_dir ./data/pylaia_train \
-    --val_dir ./data/pylaia_val \
+    --train_dir ./data/crnn_train \
+    --val_dir ./data/crnn_val \
     --output_dir ./models/my_model \
     --batch_size 32 \
     --epochs 250
@@ -125,8 +125,8 @@ python3 train_pylaia.py \
 
 ```
 .
-├── train_pylaia.py                  # PyLaia CRNN training script
-├── inference_pylaia_native.py       # PyLaia inference (native Linux)
+├── train_pylaia.py                  # CRNN-CTC training script
+├── inference_pylaia_native.py       # CRNN-CTC inference (native Linux)
 ├── inference_page.py                # Line segmentation + OCR pipeline
 ├── transcription_gui_plugin.py      # Main GUI application
 ├── polyscriptor_batch_gui.py        # Batch processing GUI
@@ -135,7 +135,7 @@ python3 train_pylaia.py \
 │
 ├── engines/                         # HTR engine plugins
 │   ├── trocr_engine.py             # TrOCR transformer
-│   ├── pylaia_engine.py            # PyLaia CRNN
+│   ├── pylaia_engine.py            # CRNN-CTC (Puigcerver CRNN)
 │   ├── qwen3_engine.py             # Qwen3-VL (local)
 │   ├── lighton_ocr_engine.py       # LightOnOCR VLM (lightweight)
 │   ├── churro_engine.py            # Churro (Qwen fork)
@@ -153,7 +153,7 @@ python3 train_pylaia.py \
 ├── requirements.txt                 # Python dependencies
 │
 └── models/                          # Trained models (excluded from git)
-    ├── pylaia_*/                    # PyLaia model checkpoints
+    ├── pylaia_*/                    # CRNN-CTC model checkpoints
     └── trocr_*/                     # TrOCR fine-tuned models
 ```
 
@@ -161,7 +161,7 @@ python3 train_pylaia.py \
 
 ## 🎓 Typical Workflow
 
-### Training a PyLaia Model
+### Training a CRNN-CTC Model
 
 1. **Export data from Transkribus** (PAGE XML format)
 2. **Parse with preprocessing**:
@@ -172,30 +172,30 @@ python3 train_pylaia.py \
        --preserve-aspect-ratio \
        --target-height 128
    ```
-3. **Convert to PyLaia format**:
+3. **Convert to CRNN-CTC format**:
    ```bash
    python3 convert_to_pylaia.py \
        --input_csv ./data/my_dataset/train.csv \
-       --output_dir ./data/pylaia_train
+       --output_dir ./data/crnn_train
    python3 convert_to_pylaia.py \
        --input_csv ./data/my_dataset/val.csv \
-       --output_dir ./data/pylaia_val
+       --output_dir ./data/crnn_val
    ```
 4. **Train model**:
    ```bash
    python3 train_pylaia.py \
-       --train_dir ./data/pylaia_train \
-       --val_dir ./data/pylaia_val \
+       --train_dir ./data/crnn_train \
+       --val_dir ./data/crnn_val \
        --output_dir ./models/my_model \
        --batch_size 32 \
        --epochs 250
    ```
-5. **Use in GUI**: Model will appear in PyLaia engine dropdown
+5. **Use in GUI**: Model will appear in the CRNN-CTC engine dropdown
 
 ### Using Trained Models
 
 Trained models can be loaded in the GUI:
-- PyLaia models: Select from dropdown or browse to model directory
+- CRNN-CTC models: Select from dropdown or browse to model directory
 - TrOCR models: Specify HuggingFace Hub ID or local checkpoint path
 - Commercial APIs: Enter API keys in engine configuration
 
@@ -203,7 +203,7 @@ Trained models can be loaded in the GUI:
 
 ## 🛠️ Command-Line Inference
 
-### PyLaia (Single Line)
+### CRNN-CTC (Single Line)
 
 ```bash
 python3 inference_pylaia_native.py \
@@ -212,7 +212,7 @@ python3 inference_pylaia_native.py \
     --image line_image.png
 ```
 
-### PyLaia (Full Page with Segmentation)
+### CRNN-CTC (Full Page with Segmentation)
 
 ```bash
 python3 inference_page.py \
@@ -247,7 +247,7 @@ For scripted/automated workflows:
 ```bash
 python3 batch_processing.py \
     --input-folder ./images \
-    --engine PyLaia \
+    --engine crnn-ctc \
     --model-path models/my_model/best_model.pt \
     --segmentation-method kraken \
     --output-folder ./output \
@@ -255,7 +255,7 @@ python3 batch_processing.py \
 ```
 
 **Key options:**
-- `--engine`: PyLaia, TrOCR, Qwen3-VL, LightOnOCR, Party, Kraken
+- `--engine`: crnn-ctc, TrOCR, Qwen3-VL, LightOnOCR, Party, Kraken
 - `--segmentation-method`: kraken (recommended), hpp (fast), none (pre-segmented)
 - `--use-pagexml`: Auto-detect and use existing PAGE XML segmentation
 - `--resume`: Skip already-processed files
@@ -275,8 +275,8 @@ Running on a remote Linux server without GUI? You have several options:
 # Process entire folders efficiently
 python3 batch_processing.py \
     --input-folder HTR_Images/manuscripts \
-    --engine PyLaia \
-    --model-path models/pylaia_model/best_model.pt \
+    --engine crnn-ctc \
+    --model-path models/crnn_ctc_model/best_model.pt \
     --use-pagexml \
     --output-folder output
 ```
@@ -321,7 +321,7 @@ vncserver :1 -geometry 1920x1080
 
 ## ⚙️ Configuration
 
-### PyLaia Training Parameters
+### CRNN-CTC Training Parameters
 
 Key hyperparameters for optimal performance:
 
@@ -389,7 +389,7 @@ SOFTWARE.
 
 ## 🙏 Acknowledgments
 
-- **PyLaia**: CTC-based HTR system: https://github.com/jpuigcerver/PyLaia
+- **PyLaia** (architecture inspiration for CRNN-CTC engine): https://github.com/jpuigcerver/PyLaia
 - **TrOCR**: Microsoft's Transformer-based OCR: https://huggingface.co/microsoft/trocr-base-handwritten
 - **LightOnOCR**: Lightweight VLM for OCR: https://huggingface.co/lightonai/LightOnOCR-2-1B-base
 - **Party**: PAge-wise Recognition of Text-y https://github.com/mittagessen/party/
@@ -408,7 +408,7 @@ For questions, bug reports, or collaboration inquiries:
 
 ## 🔬 Technical Notes
 
-### Critical Preprocessing for PyLaia
+### Critical Preprocessing for CRNN-CTC
 
 **Aspect Ratio Preservation** is CRITICAL for high aspect ratio line images:
 

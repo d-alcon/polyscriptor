@@ -2,14 +2,14 @@
 """
 Batch HTR Processing CLI
 
-Process multiple manuscript images with various HTR engines (PyLaia, TrOCR, Churro, etc.)
+Process multiple manuscript images with various HTR engines (CRNN-CTC, TrOCR, Churro, etc.)
 Supports line segmentation, multiple output formats, and robust error handling.
 
 Usage:
     python batch_processing.py \\
         --input-folder data/manuscripts/ \\
         --output-folder output/ \\
-        --engine PyLaia \\
+        --engine crnn-ctc \\
         --model-path models/pylaia_ukrainian/best_model.pt \\
         --verbose
 
@@ -58,7 +58,7 @@ except ImportError:
 
 # Engine-specific recommendations (shared server - conservative defaults)
 ENGINE_CONFIG = {
-    'PyLaia': {
+    'CRNN-CTC (PyLaia-inspired)': {
         'min_device': 'cuda',
         'default_batch_size': 32,  # Conservative for shared server
         'batch_size_range': (8, 64),
@@ -132,9 +132,9 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process folder with PyLaia Ukrainian model
+  # Process folder with CRNN-CTC Ukrainian model
   %(prog)s --input-folder data/manuscripts/ \\
-           --engine PyLaia \\
+           --engine crnn-ctc \\
            --model-path models/pylaia_ukrainian/best_model.pt
 
   # Process with TrOCR and Kraken segmentation
@@ -145,7 +145,7 @@ Examples:
            --output-format txt,csv,pagexml
 
   # Dry run (preview without processing)
-  %(prog)s --input-folder pages/ --engine PyLaia \\
+  %(prog)s --input-folder pages/ --engine crnn-ctc \\
            --model-path models/best.pt --dry-run
 
 Shared Server Notice:
@@ -158,7 +158,7 @@ Shared Server Notice:
     parser.add_argument('--input-folder', type=Path, required=True,
                        help='Folder containing input images')
     parser.add_argument('--engine', type=str, required=True,
-                       help='HTR engine (PyLaia, TrOCR, Churro, Qwen3-VL, Party, Kraken, OpenWebUI, DeepSeek-OCR, LightOnOCR)')
+                       help='HTR engine (crnn-ctc, TrOCR, Churro, Qwen3-VL, Party, Kraken, OpenWebUI, DeepSeek-OCR, LightOnOCR)')
 
     # Model selection
     model_group = parser.add_mutually_exclusive_group()
@@ -258,7 +258,7 @@ Shared Server Notice:
     if not args.input_folder.exists():
         parser.error(f"Input folder not found: {args.input_folder}")
 
-    if args.engine in ['PyLaia', 'TrOCR', 'Churro'] and not (args.model_path or args.model_id):
+    if args.engine in ['CRNN-CTC (PyLaia-inspired)', 'crnn-ctc', 'PyLaia', 'TrOCR', 'Churro'] and not (args.model_path or args.model_id):
         parser.error(f"{args.engine} requires --model-path or --model-id")
 
     # OpenWebUI requires API key (from arg or environment)
@@ -519,7 +519,7 @@ def validate_engine_config(engine_name: str, config: dict, image_count: int, log
         logger.error(f"Processing {image_count} images will take approximately:")
         logger.error(f"  {estimated_hours:.1f}-{estimated_hours*2:.1f} HOURS")
         logger.error(f"\nConsider using:")
-        logger.error(f"  - PyLaia: {(image_count/30)*60:.0f} seconds (~{image_count/30:.1f} min)")
+        logger.error(f"  - CRNN-CTC: {(image_count/30)*60:.0f} seconds (~{image_count/30:.1f} min)")
         logger.error(f"  - TrOCR: {(image_count/20)*60:.0f} seconds (~{image_count/20:.1f} min)")
         logger.error(f"  - Churro: {(image_count/15)*60:.0f} seconds (~{image_count/15:.1f} min)")
         logger.error(f"\nIf you really want to use Qwen3 for {image_count} images,")
@@ -598,6 +598,9 @@ class BatchHTRProcessor:
 
         if not self.engine:
             raise ValueError(f"Engine not found: {self.args.engine}")
+
+        # Normalize to canonical engine name so downstream lookups (ENGINE_CONFIG etc.) work
+        self.args.engine = self.engine.get_name()
 
         if not self.engine.is_available():
             raise RuntimeError(f"Engine unavailable: {self.engine.get_unavailable_reason()}")
@@ -830,10 +833,10 @@ class BatchHTRProcessor:
                 char_confidences=None
             )]
 
-        # Extract line images (filter out too-small lines for PyLaia)
+        # Extract line images (filter out too-small lines for CRNN-CTC)
         line_images = []
         filtered_lines = []
-        # PyLaia CNN needs minimum ~64px after resize to 128px height
+        # CRNN-CTC CNN needs minimum ~64px after resize to 128px height
         # Original height * (128 / original_height) >= 64  → original >= 64
         # But accounting for pooling layers, set conservative threshold
         min_height_for_cnn = 40  # Conservative minimum to avoid CNN dimension errors

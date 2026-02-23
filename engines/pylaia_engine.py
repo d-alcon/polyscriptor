@@ -5,7 +5,7 @@ Wraps the PyLaia CTC-based HTR inference system as a plugin.
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import numpy as np
 
 from htr_engine_base import HTREngine, TranscriptionResult
@@ -50,10 +50,13 @@ class PyLaiaEngine(HTREngine):
         self._enable_spaces_check: Optional[QCheckBox] = None
 
     def get_name(self) -> str:
-        return "PyLaia"
+        return "CRNN-CTC (PyLaia-inspired)"
 
     def get_description(self) -> str:
-        return "CTC-based HTR with optional KenLM language model"
+        return "Puigcerver CRNN-CTC: clean-room PyTorch reimplementation of the PyLaia architecture"
+
+    def get_aliases(self) -> List[str]:
+        return ["crnn-ctc", "PyLaia"]  # "PyLaia" kept for backward compatibility
 
     def is_available(self) -> bool:
         return PYLAIA_AVAILABLE and PYQT_AVAILABLE

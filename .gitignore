@@ -77,6 +77,10 @@ runs/
 tensorboard/
 wandb/
 
+# Security scanning reports
+gitleaks_*.json
+*_report.json
+
 # Compressed files
 *.zip
 *.tar.gz
@@ -90,7 +94,6 @@ wandb/
 page/
 *.xml
 !example*.xml
-!ALTO_example*.xml
 
 # ignore local claude settings
 .claude/
@@ -132,6 +135,7 @@ fix_*.py
 COMPREHENSIVE_*.md
 QWEN_*.md
 KRAKEN_*.md
+SESSION_SUMMARY_*.md
 Documentation/
 
 # Detailed project documentation (hardware-specific, too detailed for public)
