@@ -175,8 +175,8 @@ Shared Server Notice:
 
     # Segmentation
     parser.add_argument('--segmentation-method', type=str, default='hpp',
-                       choices=['hpp', 'kraken', 'none'],
-                       help='Line segmentation method (default: hpp)')
+                       choices=['hpp', 'kraken', 'kraken-blla', 'none'],
+                       help='Line segmentation method: hpp, kraken, kraken-blla (neural, multi-column), none (default: hpp)')
     parser.add_argument('--segmentation-sensitivity', type=float, default=0.05,
                        help='HPP sensitivity (0.01-0.1, default: 0.05)')
     parser.add_argument('--min-line-height', type=int, default=15,
@@ -271,7 +271,7 @@ Shared Server Notice:
         if not args.model_id:
             parser.error("OpenWebUI requires --model-id (e.g., 'gpt-4-vision-preview' or model from server)")
 
-    if args.segmentation_method == 'kraken' and not KRAKEN_AVAILABLE:
+    if args.segmentation_method in ('kraken', 'kraken-blla') and not KRAKEN_AVAILABLE:
         parser.error("Kraken not installed. Install with: pip install kraken")
 
     # Parse output formats (handle both comma-separated and multiple --output-format flags)
@@ -698,7 +698,12 @@ class BatchHTRProcessor:
 
         elif self.args.segmentation_method == 'kraken':
             self.segmenter = KrakenLineSegmenter()
-            self.logger.info("✓ Kraken segmenter initialized")
+            self.logger.info("✓ Kraken Classical segmenter initialized")
+
+        elif self.args.segmentation_method == 'kraken-blla':
+            device = self.args.device if hasattr(self.args, 'device') else 'cpu'
+            self.segmenter = KrakenLineSegmenter(device=device)
+            self.logger.info(f"✓ Kraken Neural (blla) segmenter initialized (device={device})")
 
     def process_batch(self, image_xml_pairs: List[Tuple[Path, Optional[Path]]]):
         """Process batch of images with optional PAGE XML."""
@@ -796,11 +801,31 @@ class BatchHTRProcessor:
                     )]
                     self.logger.debug(f"  No segmentation: treating image as single line")
                 else:
-                    # Segment lines from full page
-                    lines = self.segmenter.segment_lines(image)
-                    self.logger.debug(f"  Segmented {len(lines)} lines")
+                    if self.args.segmentation_method == 'kraken-blla':
+                        # Neural baseline segmentation with region detection
+                        from inference_page import sort_lines_by_region
+                        regions, blla_lines = self.segmenter.segment_with_regions(image)
+                        self.logger.debug(f"  blla: {len(regions)} regions, {len(blla_lines)} lines")
 
-                    # Normalize Kraken LineSegments to inference_page format
+                        # Normalize blla LineSegments to inference_page format
+                        normalized_lines = []
+                        for line in blla_lines:
+                            x1, y1, x2, y2 = line.bbox
+                            normalized_lines.append(LineSegment(
+                                image=line.image,
+                                bbox=(x1, y1, x2-x1, y2-y1),
+                                coords=line.baseline if hasattr(line, 'baseline') else None,
+                                text=None,
+                                confidence=None,
+                                char_confidences=None
+                            ))
+                        lines = normalized_lines
+                    else:
+                        # Classical segmentation (HPP or Kraken)
+                        lines = self.segmenter.segment_lines(image)
+                        self.logger.debug(f"  Segmented {len(lines)} lines")
+
+                    # Normalize Kraken Classical LineSegments to inference_page format
                     # Kraken: bbox=(x1,y1,x2,y2), baseline attribute
                     # inference_page: bbox=(x,y,w,h), coords attribute
                     if self.args.segmentation_method == 'kraken' and len(lines) > 0:

@@ -410,6 +410,7 @@ class TranscriptionGUI(QMainWindow):
         self.worker: Optional[TranscriptionWorker] = None
         self.comparison_widget: Optional[ComparisonWidget] = None
         self.comparison_mode_active: bool = False
+        self.regions: list = []  # SegRegion list from blla segmentation
 
         # Multi-page navigation state
         self.image_list: List[Path] = []
@@ -524,8 +525,9 @@ class TranscriptionGUI(QMainWindow):
         self.seg_method_combo = QComboBox()
         self.seg_method_combo.addItem("HPP (Fast)", "HPP")
         if KRAKEN_AVAILABLE:
-            self.seg_method_combo.addItem("Kraken (Robust)", "Kraken")
-            self.seg_method_combo.setCurrentIndex(1)  # Default to Kraken if available
+            self.seg_method_combo.addItem("Kraken Classical", "Kraken")
+            self.seg_method_combo.addItem("Kraken Neural (blla)", "KrakenBLLA")
+            self.seg_method_combo.setCurrentIndex(1)  # Default to Kraken Classical if available
         else:
             self.seg_method_combo.addItem("Kraken (Not installed)", None)
             self.seg_method_combo.model().item(1).setEnabled(False)
@@ -583,6 +585,76 @@ class TranscriptionGUI(QMainWindow):
 
         self.kraken_params_widget.setLayout(kraken_layout)
         seg_layout.addWidget(self.kraken_params_widget)
+
+        # Kraken Neural (blla) parameters
+        self.blla_params_widget = QWidget()
+        blla_layout = QVBoxLayout()
+        blla_layout.setContentsMargins(0, 0, 0, 0)
+
+        blla_device_layout = QHBoxLayout()
+        blla_device_layout.addWidget(QLabel("Device:"))
+        self.blla_device_combo = QComboBox()
+        self.blla_device_combo.addItem("CPU", "cpu")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    name = torch.cuda.get_device_name(i)
+                    self.blla_device_combo.addItem(f"GPU {i}: {name}", f"cuda:{i}")
+                # Default to first GPU
+                self.blla_device_combo.setCurrentIndex(1)
+        except ImportError:
+            pass
+        blla_device_layout.addWidget(self.blla_device_combo)
+        blla_layout.addLayout(blla_device_layout)
+
+        # Max columns
+        blla_cols_layout = QHBoxLayout()
+        blla_cols_layout.addWidget(QLabel("Max Columns:"))
+        self.blla_max_columns_spin = QSpinBox()
+        self.blla_max_columns_spin.setRange(1, 8)
+        self.blla_max_columns_spin.setValue(4)
+        self.blla_max_columns_spin.setToolTip(
+            "Maximum number of text columns to detect per region (1-8).\n"
+            "Set to 2 for single-page two-column, 4 for double-page two-column.")
+        blla_cols_layout.addWidget(self.blla_max_columns_spin)
+        blla_cols_layout.addStretch()
+        blla_layout.addLayout(blla_cols_layout)
+
+        # Split width threshold
+        blla_split_layout = QHBoxLayout()
+        blla_split_layout.addWidget(QLabel("Split Width:"))
+        self.blla_split_slider = QSlider(Qt.Orientation.Horizontal)
+        self.blla_split_slider.setRange(10, 80)  # 10% to 80%
+        self.blla_split_slider.setValue(40)       # default 40%
+        self.blla_split_label = QLabel("40%")
+        self.blla_split_slider.valueChanged.connect(
+            lambda v: self.blla_split_label.setText(f"{v}%")
+        )
+        self.blla_split_slider.setToolTip(
+            "Regions wider than this % of page width get sub-split into columns.\n"
+            "Lower = more aggressive splitting.\n"
+            "Portrait single-page: 40% (default)\n"
+            "Landscape double-page: try 20-25%")
+        blla_split_layout.addWidget(self.blla_split_slider)
+        blla_split_layout.addWidget(self.blla_split_label)
+        blla_layout.addLayout(blla_split_layout)
+
+        # Min lines to split
+        blla_minlines_layout = QHBoxLayout()
+        blla_minlines_layout.addWidget(QLabel("Min Lines:"))
+        self.blla_min_lines_spin = QSpinBox()
+        self.blla_min_lines_spin.setRange(3, 50)
+        self.blla_min_lines_spin.setValue(10)
+        self.blla_min_lines_spin.setToolTip(
+            "Minimum lines in a region before attempting column split.\n"
+            "Lower = split regions with fewer lines.")
+        blla_minlines_layout.addWidget(self.blla_min_lines_spin)
+        blla_minlines_layout.addStretch()
+        blla_layout.addLayout(blla_minlines_layout)
+
+        self.blla_params_widget.setLayout(blla_layout)
+        seg_layout.addWidget(self.blla_params_widget)
 
         # Set initial visibility based on default method
         self._on_seg_method_changed(self.seg_method_combo.currentIndex())
@@ -1007,6 +1079,7 @@ class TranscriptionGUI(QMainWindow):
 
             self.status_bar.showMessage(f"Loaded: {file_path.name}")
             self.line_segments = []
+            self.regions = []
             self.transcriptions = []
             self.transcription_text.clear()
             self.stats_panel.clear()
@@ -1054,16 +1127,23 @@ class TranscriptionGUI(QMainWindow):
         """Handle segmentation method change."""
         method = self.seg_method_combo.currentData()
 
+        # Hide all parameter widgets first
+        self.hpp_params_widget.setVisible(False)
+        self.kraken_params_widget.setVisible(False)
+        if hasattr(self, 'blla_params_widget'):
+            self.blla_params_widget.setVisible(False)
+
         if method == "Kraken":
-            # Show Kraken parameters, hide HPP parameters
             self.kraken_params_widget.setVisible(True)
-            self.hpp_params_widget.setVisible(False)
             if hasattr(self, 'status_bar'):
-                self.status_bar.showMessage("Switched to Kraken segmentation (slower but more robust)")
+                self.status_bar.showMessage("Switched to Kraken Classical segmentation")
+        elif method == "KrakenBLLA":
+            if hasattr(self, 'blla_params_widget'):
+                self.blla_params_widget.setVisible(True)
+            if hasattr(self, 'status_bar'):
+                self.status_bar.showMessage("Switched to Kraken Neural (blla) — supports multi-column layouts")
         else:  # HPP
-            # Show HPP parameters, hide Kraken parameters
             self.hpp_params_widget.setVisible(True)
-            self.kraken_params_widget.setVisible(False)
             if hasattr(self, 'status_bar'):
                 self.status_bar.showMessage("Switched to HPP segmentation (fast)")
 
@@ -1076,9 +1156,47 @@ class TranscriptionGUI(QMainWindow):
         try:
             method = self.seg_method_combo.currentData()
 
-            if method == "Kraken":
-                # Use Kraken segmentation
-                self.status_bar.showMessage("Detecting lines with Kraken (this may take 3-8 seconds)...")
+            if method == "KrakenBLLA":
+                # Use Kraken Neural (blla) segmentation — regions + baselines
+                self.status_bar.showMessage("Detecting regions & lines with Kraken Neural (blla)...")
+                QApplication.processEvents()
+
+                from kraken_segmenter import KrakenLineSegmenter
+                from inference_page import LineSegment, sort_lines_by_region
+
+                device = self.blla_device_combo.currentData() if hasattr(self, 'blla_device_combo') else 'cpu'
+                segmenter = KrakenLineSegmenter(device=device)
+                max_cols = self.blla_max_columns_spin.value() if hasattr(self, 'blla_max_columns_spin') else 4
+                split_frac = (self.blla_split_slider.value() / 100.0) if hasattr(self, 'blla_split_slider') else 0.40
+                min_lines = self.blla_min_lines_spin.value() if hasattr(self, 'blla_min_lines_spin') else 10
+                regions, kraken_lines = segmenter.segment_with_regions(
+                    self.current_image, device=device,
+                    max_columns=max_cols,
+                    split_width_fraction=split_frac,
+                    min_lines_to_split=min_lines,
+                )
+
+                # Store regions for later use (visualization, export)
+                self.regions = regions
+
+                # Convert kraken LineSegments to inference_page LineSegment format
+                self.line_segments = []
+                for seg in kraken_lines:
+                    self.line_segments.append(LineSegment(
+                        image=seg.image,
+                        bbox=seg.bbox,
+                        coords=seg.baseline,
+                    ))
+
+                num_regions = len(regions)
+                num_lines = len(self.line_segments)
+                self.status_bar.showMessage(
+                    f"blla: {num_regions} region(s), {num_lines} lines"
+                )
+
+            elif method == "Kraken":
+                # Use Kraken Classical segmentation
+                self.status_bar.showMessage("Detecting lines with Kraken Classical (this may take 3-8 seconds)...")
                 QApplication.processEvents()
 
                 from kraken_segmenter import KrakenLineSegmenter
@@ -1091,6 +1209,8 @@ class TranscriptionGUI(QMainWindow):
                     use_binarization=use_binarization
                 )
 
+                self.regions = []  # Classical has no regions
+
                 # Convert Kraken segments to LineSegment format
                 from inference_page import LineSegment
                 self.line_segments = []
@@ -1102,6 +1222,7 @@ class TranscriptionGUI(QMainWindow):
                     ))
 
             else:  # HPP method
+                self.regions = []  # HPP has no regions
                 self.status_bar.showMessage("Detecting lines with HPP...")
                 QApplication.processEvents()
 
@@ -1117,11 +1238,15 @@ class TranscriptionGUI(QMainWindow):
                 )
                 self.line_segments = segmenter.segment_lines(self.current_image)
 
-            # Draw boxes
-            self.image_view.draw_line_boxes(self.line_segments)
+            # Draw boxes (color-code by region if blla was used)
+            if method == "KrakenBLLA" and self.regions:
+                self._draw_region_line_boxes()
+            else:
+                self.image_view.draw_line_boxes(self.line_segments)
 
             num_lines = len(self.line_segments)
-            self.status_bar.showMessage(f"Found {num_lines} lines with {method}")
+            method_display = {"HPP": "HPP", "Kraken": "Kraken Classical", "KrakenBLLA": "Kraken Neural (blla)"}.get(method, method)
+            self.status_bar.showMessage(f"Found {num_lines} lines with {method_display}")
 
             # Warn if no lines or only 1 line detected
             if num_lines == 0:
@@ -1156,6 +1281,75 @@ class TranscriptionGUI(QMainWindow):
             print(f"Segmentation error:\n{error_detail}")
             QMessageBox.warning(self, "Error", f"Failed to segment lines: {e}\n\nCheck console for details.")
     
+    def _draw_region_line_boxes(self):
+        """Draw color-coded line boxes grouped by region after blla segmentation."""
+        # Region color palette
+        region_colors = [
+            QColor(0, 200, 0),      # green
+            QColor(0, 100, 255),     # blue
+            QColor(255, 128, 0),     # orange
+            QColor(180, 0, 180),     # purple
+            QColor(255, 0, 0),       # red
+        ]
+
+        # Remove old line items
+        for item in self.image_view.line_items:
+            self.image_view._scene.removeItem(item)
+        self.image_view.line_items = []
+
+        # Build region-to-color mapping and assign lines to regions by bbox containment
+        line_idx = 0
+        for ri, region in enumerate(self.regions):
+            color = region_colors[ri % len(region_colors)]
+            pen = QPen(color)
+            pen.setWidth(2)
+
+            # Draw region polygon/bbox
+            if region.polygon and len(region.polygon) >= 3:
+                region_pen = QPen(color)
+                region_pen.setWidth(3)
+                region_pen.setStyle(Qt.PenStyle.DashLine)
+                for i in range(len(region.polygon)):
+                    p1 = region.polygon[i]
+                    p2 = region.polygon[(i + 1) % len(region.polygon)]
+                    line_item = self.image_view._scene.addLine(
+                        p1[0], p1[1], p2[0], p2[1], region_pen
+                    )
+                    self.image_view.line_items.append(line_item)
+            else:
+                region_pen = QPen(color)
+                region_pen.setWidth(3)
+                region_pen.setStyle(Qt.PenStyle.DashLine)
+                x1, y1, x2, y2 = region.bbox
+                rect_item = self.image_view._scene.addRect(
+                    x1, y1, x2 - x1, y2 - y1, region_pen
+                )
+                self.image_view.line_items.append(rect_item)
+
+            # Draw lines belonging to this region
+            n_lines = len(region.line_ids)
+            for _ in range(n_lines):
+                if line_idx < len(self.line_segments):
+                    seg = self.line_segments[line_idx]
+                    x1, y1, x2, y2 = seg.bbox
+                    rect_item = self.image_view._scene.addRect(
+                        x1, y1, x2 - x1, y2 - y1, pen
+                    )
+                    self.image_view.line_items.append(rect_item)
+                    line_idx += 1
+
+        # Any remaining lines (shouldn't happen, but be safe)
+        default_pen = QPen(QColor(0, 255, 0))
+        default_pen.setWidth(2)
+        while line_idx < len(self.line_segments):
+            seg = self.line_segments[line_idx]
+            x1, y1, x2, y2 = seg.bbox
+            rect_item = self.image_view._scene.addRect(
+                x1, y1, x2 - x1, y2 - y1, default_pen
+            )
+            self.image_view.line_items.append(rect_item)
+            line_idx += 1
+
     def process_image(self):
         """Transcribe all detected lines or full page (for VLMs)."""
         if not self.current_engine or not self.current_engine.is_model_loaded():

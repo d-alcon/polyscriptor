@@ -43,6 +43,62 @@ class LineSegment:
     char_confidences: Optional[List[float]] = None  # per-character confidence scores
 
 
+def sort_lines_by_region(regions, lines):
+    """
+    Sort lines in reading order: regions left-to-right, lines top-to-bottom
+    within each region.
+
+    Works with SegRegion objects from kraken_segmenter (which carry bbox and
+    line_ids) and any list of line-like objects that have a ``.bbox`` attribute
+    with (x1, y1, x2, y2) format.
+
+    Args:
+        regions: List of SegRegion (from kraken_segmenter) with .bbox and .line_ids.
+                 If empty/None, lines are returned sorted top-to-bottom.
+        lines:   List of LineSegment (or kraken LineSegment).
+
+    Returns:
+        List of lines re-ordered by region reading order.
+    """
+    if not regions or not lines:
+        # No region info — simple top-to-bottom sort
+        return sorted(lines, key=lambda l: l.bbox[1])
+
+    # Sort regions left-to-right by mean x-center
+    sorted_regions = sorted(
+        regions,
+        key=lambda r: (r.bbox[0] + r.bbox[2]) / 2,
+    )
+
+    # Assign each line to the region whose bbox contains the line's center
+    region_buckets = {r.id: [] for r in sorted_regions}
+    unassigned = []
+
+    for line in lines:
+        cx = (line.bbox[0] + line.bbox[2]) / 2
+        cy = (line.bbox[1] + line.bbox[3]) / 2
+        assigned = False
+        for r in sorted_regions:
+            rx1, ry1, rx2, ry2 = r.bbox
+            if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
+                region_buckets[r.id].append(line)
+                assigned = True
+                break
+        if not assigned:
+            unassigned.append(line)
+
+    # Build ordered list: per-region top-to-bottom, then unassigned at the end
+    ordered = []
+    for r in sorted_regions:
+        bucket = region_buckets[r.id]
+        bucket.sort(key=lambda l: l.bbox[1])
+        ordered.extend(bucket)
+
+    unassigned.sort(key=lambda l: l.bbox[1])
+    ordered.extend(unassigned)
+    return ordered
+
+
 def normalize_background(image: Image.Image) -> Image.Image:
     """
     Normalize background to light gray (similar to Efendiev dataset).
