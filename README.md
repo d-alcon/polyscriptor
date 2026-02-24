@@ -16,6 +16,7 @@ A comprehensive toolkit for training and comparing different Handwritten Text Re
 - **Churro**: Qwen fork, experimental (line/page-level, custom prompts)
 - **Party**: Transformer-based HTR (line-level, multilingual)
 - **Kraken**: Segmentation & recognition
+- **PaddleOCR**: Multi-language printed/mixed text detection + recognition (whole-page, subprocess-isolated)
 
 ### Commercial & Local Vision Models
 - **Commercial APIs**: Google Gemini, Anthropic Claude Vision (via API keys)
@@ -142,7 +143,9 @@ python3 train_pylaia.py \
 │   ├── party_engine.py             # Party multilingual HTR
 │   ├── kraken_engine.py            # Kraken segmentation
 │   ├── commercial_api_engine.py    # Google Gemini, OpenAI GPT & Anthropic Claude APIs
-│   └── openwebui_engine.py         # OpenWebUI local LLMs
+│   ├── openwebui_engine.py         # OpenWebUI local LLMs
+│   ├── paddle_engine.py            # PaddleOCR (subprocess, isolated venv)
+│   └── paddle_worker.py            # PaddleOCR worker (runs inside venv_paddle)
 │
 ├── optimized_training.py            # TrOCR fine-tuning script
 ├── transkribus_parser.py            # PAGE XML data preparation
@@ -255,11 +258,51 @@ python3 batch_processing.py \
 ```
 
 **Key options:**
-- `--engine`: crnn-ctc, TrOCR, Qwen3-VL, LightOnOCR, Party, Kraken
+- `--engine`: crnn-ctc, TrOCR, Qwen3-VL, LightOnOCR, Party, Kraken, PaddleOCR
 - `--segmentation-method`: kraken (recommended), hpp (fast), none (pre-segmented)
 - `--use-pagexml`: Auto-detect and use existing PAGE XML segmentation
 - `--resume`: Skip already-processed files
 - `--dry-run`: Test without writing output
+
+---
+
+## 🖨️ PaddleOCR Engine
+
+PaddleOCR performs its own text **detection + recognition** on whole pages — no pre-segmented lines needed. It runs in an isolated `venv_paddle` to avoid OpenCV conflicts with the main environment.
+
+### Setup
+
+```bash
+python3 -m venv venv_paddle
+source venv_paddle/bin/activate
+# CPU only:
+pip install paddlepaddle paddleocr
+# GPU (CUDA 12.x):
+pip install paddleocr
+pip install paddlepaddle-gpu==3.0.0 -f https://www.paddlepaddle.org.cn/packages/stable/cu126/
+deactivate
+```
+
+### Language codes
+
+PaddleOCR uses **ISO language codes** (not script names). Enter the code in the "Language code" field of the engine config. Common examples:
+
+| Code | Language / Script |
+|------|-------------------|
+| `en` | English |
+| `ch` | Chinese + English (strongest general model) |
+| `de` or `german` | German |
+| `fr` or `french` | French |
+| `ru` | Russian (Cyrillic) |
+| `uk` | Ukrainian (Cyrillic) |
+| `bg` | Bulgarian (Cyrillic) |
+| `la` | Latin (classical) |
+| `ar` | Arabic |
+| `japan` | Japanese |
+| `korean` | Korean |
+
+> **Note:** Models download automatically on first use (~50–200 MB per script group). Only `en` is fetched during initial setup. Other language models cache in `~/.paddlex/official_models/`.
+> Full language list: https://paddlepaddle.github.io/PaddleOCR/main/en/ppocr/blog/multi_languages.html
 
 ---
 

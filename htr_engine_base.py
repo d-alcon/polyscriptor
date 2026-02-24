@@ -313,6 +313,13 @@ class HTREngineRegistry:
         except ImportError as e:
             print(f"Warning: Failed to load LightOnOCR engine: {e}")
 
+        # Import and register PaddleOCR engine
+        try:
+            from engines.paddle_engine import PaddleOCREngine
+            self.register(PaddleOCREngine())
+        except ImportError as e:
+            print(f"Warning: Failed to load PaddleOCR engine: {e}")
+
     def get_available_engines(self) -> List[HTREngine]:
         """Get list of engines with satisfied dependencies.
 
