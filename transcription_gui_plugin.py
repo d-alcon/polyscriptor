@@ -62,6 +62,9 @@ for engine in available_engines:
 class ZoomableGraphicsView(QGraphicsView):
     """Graphics view with smooth zoom and pan capabilities."""
 
+    rects_changed = pyqtSignal(int)   # emits len(drawn_rects) after add/clear
+    escape_pressed = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -75,6 +78,13 @@ class ZoomableGraphicsView(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.line_items = []
+
+        # Draw mode state
+        self.draw_mode: bool = False
+        self.drawn_rects: List[Tuple[int, int, int, int]] = []
+        self.drawn_rect_items: List = []
+        self._drag_start = None    # QPointF (scene coords) while dragging
+        self._drag_item = None     # live QGraphicsRectItem during drag
 
     def has_image(self):
         return not self._empty
@@ -90,6 +100,10 @@ class ZoomableGraphicsView(QGraphicsView):
         """Load image into view."""
         self._scene.clear()
         self.line_items = []
+        self.drawn_rect_items = []
+        self.drawn_rects = []
+        self._drag_start = None
+        self._drag_item = None
         self._scene.addPixmap(pixmap)
         self._empty = False
         self.fit_in_view()
@@ -116,6 +130,83 @@ class ZoomableGraphicsView(QGraphicsView):
             factor = 1.25 if event.angleDelta().y() > 0 else 0.8
             self.scale(factor, factor)
             self._zoom += 1 if factor > 1 else -1
+
+    def set_draw_mode(self, enabled: bool):
+        """Toggle rectangle draw mode on/off."""
+        self.draw_mode = enabled
+        if enabled:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            if self._drag_item is not None:
+                self._scene.removeItem(self._drag_item)
+                self._drag_item = None
+            self._drag_start = None
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def clear_drawn_rects(self):
+        """Remove all drawn rectangles from the scene."""
+        for item in self.drawn_rect_items:
+            self._scene.removeItem(item)
+        self.drawn_rect_items = []
+        self.drawn_rects = []
+        if self._drag_item is not None:
+            self._scene.removeItem(self._drag_item)
+            self._drag_item = None
+        self.rects_changed.emit(0)
+
+    def mousePressEvent(self, event):
+        if self.draw_mode and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = self.mapToScene(event.pos())
+            pen = QPen(QColor(180, 0, 0))
+            pen.setWidth(2)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            self._drag_item = self._scene.addRect(
+                self._drag_start.x(), self._drag_start.y(), 0, 0, pen
+            )
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.draw_mode and self._drag_start is not None:
+            pos = self.mapToScene(event.pos())
+            x1 = min(self._drag_start.x(), pos.x())
+            y1 = min(self._drag_start.y(), pos.y())
+            x2 = max(self._drag_start.x(), pos.x())
+            y2 = max(self._drag_start.y(), pos.y())
+            self._drag_item.setRect(x1, y1, x2 - x1, y2 - y1)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.draw_mode and event.button() == Qt.MouseButton.LeftButton:
+            if self._drag_start is not None:
+                pos = self.mapToScene(event.pos())
+                x1 = int(min(self._drag_start.x(), pos.x()))
+                y1 = int(min(self._drag_start.y(), pos.y()))
+                x2 = int(max(self._drag_start.x(), pos.x()))
+                y2 = int(max(self._drag_start.y(), pos.y()))
+                if (x2 - x1) >= 10 and (y2 - y1) >= 10:
+                    self.drawn_rects.append((x1, y1, x2, y2))
+                    self.drawn_rect_items.append(self._drag_item)
+                    self.rects_changed.emit(len(self.drawn_rects))
+                else:
+                    self._scene.removeItem(self._drag_item)
+            self._drag_start = None
+            self._drag_item = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self.draw_mode and event.key() == Qt.Key.Key_Escape:
+            self.escape_pressed.emit()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
 
 class StatisticsPanel(QWidget):
@@ -478,6 +569,38 @@ class TranscriptionGUI(QMainWindow):
         img_controls.addWidget(btn_fit)
 
         left_layout.addLayout(img_controls)
+
+        # Draw mode controls: rectangle drawing for manual re-segmentation
+        draw_controls = QHBoxLayout()
+
+        self.btn_draw_mode = QPushButton("Draw Regions")
+        self.btn_draw_mode.setCheckable(True)
+        self.btn_draw_mode.setToolTip(
+            "Toggle draw mode: click and drag to draw rectangles on the image.\n"
+            "Each rectangle marks an area to re-segment with blla.\n"
+            "Press Escape or click again to exit draw mode.")
+        draw_controls.addWidget(self.btn_draw_mode)
+
+        self.btn_resegment_drawn = QPushButton("Re-segment Drawn")
+        self.btn_resegment_drawn.setEnabled(False)
+        self.btn_resegment_drawn.setToolTip(
+            "Run blla segmentation within each drawn rectangle.\n"
+            "Replaces existing regions that overlap the drawn areas.")
+        draw_controls.addWidget(self.btn_resegment_drawn)
+
+        btn_clear_drawn = QPushButton("Clear Drawn")
+        btn_clear_drawn.setToolTip("Remove all drawn rectangles.")
+        draw_controls.addWidget(btn_clear_drawn)
+
+        left_layout.addLayout(draw_controls)
+
+        self.btn_draw_mode.toggled.connect(self._toggle_draw_mode)
+        self.btn_resegment_drawn.clicked.connect(self._resegment_drawn_regions)
+        btn_clear_drawn.clicked.connect(self._clear_drawn_regions)
+        self.image_view.rects_changed.connect(
+            lambda n: self.btn_resegment_drawn.setEnabled(n > 0))
+        self.image_view.escape_pressed.connect(
+            lambda: self.btn_draw_mode.setChecked(False))
 
         # Image navigation - row 2: prev/next buttons and page counter
         nav_controls = QHBoxLayout()
@@ -1376,6 +1499,128 @@ class TranscriptionGUI(QMainWindow):
             )
             self.image_view.line_items.append(rect_item)
             line_idx += 1
+
+    def _toggle_draw_mode(self, checked: bool):
+        """Enable or disable rectangle draw mode on the image view."""
+        self.image_view.set_draw_mode(checked)
+
+    def _clear_drawn_regions(self):
+        """Remove all drawn rectangles from the image view."""
+        self.image_view.clear_drawn_rects()
+
+    def _resegment_drawn_regions(self):
+        """Re-run blla segmentation inside each drawn rectangle, replacing overlapping regions."""
+        drawn = self.image_view.drawn_rects
+        if not drawn or self.current_image is None:
+            return
+
+        from inference_page import LineSegment as InfLineSegment
+
+        try:
+            from kraken_segmenter import KrakenLineSegmenter
+        except ImportError:
+            QMessageBox.warning(self, "Not Available", "Kraken segmenter not installed.")
+            return
+
+        W, H = self.current_image.size
+
+        def _overlap(b1, b2):
+            return not (b1[2] <= b2[0] or b2[2] <= b1[0] or
+                        b1[3] <= b2[1] or b2[3] <= b1[1])
+
+        # Build (region, lines) pairs for KEPT regions (no overlap with any drawn rect)
+        kept_pairs = []
+        line_offset = 0
+        for region in self.regions:
+            n = len(region.line_ids)
+            region_lines = list(self.line_segments[line_offset:line_offset + n])
+            line_offset += n
+            if not any(_overlap(region.bbox, dr) for dr in drawn):
+                kept_pairs.append((region, region_lines))
+
+        # Get segmenter params (same guards as segment_lines)
+        device = self.blla_device_combo.currentData() if hasattr(self, 'blla_device_combo') else 'cpu'
+        max_cols = self.blla_max_columns_spin.value() if hasattr(self, 'blla_max_columns_spin') else 4
+        split_frac = (self.blla_split_slider.value() / 100.0) if hasattr(self, 'blla_split_slider') else 0.40
+        min_lines = self.blla_min_lines_spin.value() if hasattr(self, 'blla_min_lines_spin') else 10
+        custom_model = self.blla_model_edit.text().strip() if hasattr(self, 'blla_model_edit') else None
+
+        segmenter = KrakenLineSegmenter(device=device)
+        new_pairs = []
+
+        for ri, (dx1, dy1, dx2, dy2) in enumerate(drawn):
+            dx1, dy1 = max(0, dx1), max(0, dy1)
+            dx2, dy2 = min(W, dx2), min(H, dy2)
+            if dx2 <= dx1 or dy2 <= dy1:
+                continue
+
+            self.status_bar.showMessage(f"Re-segmenting drawn rect {ri + 1}/{len(drawn)}...")
+            QApplication.processEvents()
+
+            crop = self.current_image.crop((dx1, dy1, dx2, dy2))
+            try:
+                seg_regions, seg_lines = segmenter.segment_with_regions(
+                    crop, device=device,
+                    model_path=custom_model or None,
+                    max_columns=max_cols,
+                    split_width_fraction=split_frac,
+                    min_lines_to_split=min_lines,
+                )
+            except Exception as e:
+                self.status_bar.showMessage(f"Error re-segmenting rect {ri + 1}: {e}")
+                continue
+
+            # Adjust all coordinates by (+dx1, +dy1) to convert crop → page space
+            for sr in seg_regions:
+                sr.id = f"r_draw_{ri}_{sr.id}"
+                bx1, by1, bx2, by2 = sr.bbox
+                sr.bbox = (bx1 + dx1, by1 + dy1, bx2 + dx1, by2 + dy1)
+                if sr.polygon:
+                    sr.polygon = [(px + dx1, py + dy1) for px, py in sr.polygon]
+
+            # Convert kraken LineSegments to InfLineSegment with adjusted coords
+            inf_lines = []
+            for seg in seg_lines:
+                sbx1, sby1, sbx2, sby2 = seg.bbox
+                adj_bbox = (sbx1 + dx1, sby1 + dy1, sbx2 + dx1, sby2 + dy1)
+                adj_baseline = (
+                    [(bpx + dx1, bpy + dy1) for bpx, bpy in seg.baseline]
+                    if seg.baseline else None
+                )
+                inf_lines.append(InfLineSegment(
+                    image=seg.image,
+                    bbox=adj_bbox,
+                    coords=adj_baseline,
+                ))
+
+            # Pair each region with its slice of inf_lines
+            line_offset2 = 0
+            for sr in seg_regions:
+                n2 = len(sr.line_ids)
+                new_pairs.append((sr, inf_lines[line_offset2:line_offset2 + n2]))
+                line_offset2 += n2
+
+        # Merge all pairs, sort left-to-right by region x-center
+        all_pairs = kept_pairs + new_pairs
+        all_pairs.sort(key=lambda p: (p[0].bbox[0] + p[0].bbox[2]) / 2)
+
+        self.regions = [r for r, _ in all_pairs]
+        self.line_segments = [l for _, ls in all_pairs for l in ls]
+
+        # Re-index line_ids so they are contiguous
+        flat_idx = 0
+        for region in self.regions:
+            n = len(region.line_ids)
+            region.line_ids = [f"l_{flat_idx + i}" for i in range(n)]
+            flat_idx += n
+
+        # Clear drawn rects, exit draw mode, refresh canvas
+        self.image_view.clear_drawn_rects()
+        self.btn_draw_mode.setChecked(False)
+        self._draw_region_line_boxes()
+        self.status_bar.showMessage(
+            f"{len(self.regions)} region(s), {len(self.line_segments)} lines after re-segmentation"
+        )
 
     def process_image(self):
         """Transcribe all detected lines or full page (for VLMs)."""

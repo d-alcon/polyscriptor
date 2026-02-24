@@ -125,7 +125,8 @@ class PageXMLExporter:
         # Single text region spanning all lines
         text_region = ET.SubElement(page, 'TextRegion', {
             'id': 'region_1',
-            'type': 'paragraph'
+            'type': 'paragraph',
+            'custom': 'readingOrder {index:0;}'
         })
         if segments:
             x1 = min(seg.bbox[0] for seg in segments)
@@ -194,7 +195,8 @@ class PageXMLExporter:
 
             text_region = ET.SubElement(page, 'TextRegion', {
                 'id': region.id,
-                'type': 'paragraph'
+                'type': 'paragraph',
+                'custom': f'readingOrder {{index:{ri};}}'
             })
 
             # Region polygon (prefer neural boundary over convex hull over bbox)

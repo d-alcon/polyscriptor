@@ -333,25 +333,30 @@ class PyLaiaInference:
 
 # Model registry (updated for trained models)
 PYLAIA_MODELS = {
-    "Church Slavonic (3.51% CER)": {
-        "checkpoint": "models/pylaia_church_slavonic_20251103_162857/best_model.pt",
-        "syms": "data/pylaia_church_slavonic/syms.txt",
-        "description": "PyLaia CRNN - Church Slavonic manuscript (153 symbols, 3.51% CER)"
+    "Church Slavonic (2.89% CER)": {
+        "checkpoint": "models/pylaia_church_slavonic_20251103_222215/best_model.pt",
+        "syms": "models/pylaia_church_slavonic_20251103_222215/symbols.txt",
+        "description": "PyLaia CRNN - Church Slavonic manuscript (2.89% CER)"
+    },
+    "Prosta Mova (3.77% CER)": {
+        "checkpoint": "models/pylaia_prosta_mova_v4_20251121_155322/best_model.pt",
+        "syms": "models/pylaia_prosta_mova_v4_20251121_155322/symbols.txt",
+        "description": "PyLaia CRNN - Prosta Mova (3.77% CER)"
     },
     "Glagolitic (5.33% CER)": {
         "checkpoint": "models/pylaia_glagolitic_with_spaces_20251102_182103/best_model.pt",
         "syms": "data/pylaia_glagolitic/syms.txt",
         "description": "PyLaia CRNN - Glagolitic manuscript (76 symbols, 5.33% CER)"
     },
-    "Ukrainian (13.53% CER - NEW)": {
+    "Ukrainian (4.76% CER)": {
+        "checkpoint": "models/pylaia_ukrainian_v2c_20251124_180634/best_model.pt",
+        "syms": "models/pylaia_ukrainian_v2c_20251124_180634/symbols.txt",
+        "description": "PyLaia CRNN - Ukrainian manuscript (4.76% CER)"
+    },
+    "Ukrainian (13.53% CER - OLD)": {
         "checkpoint": "models/pylaia_ukrainian_retrain_20251102_213431/best_model.pt",
         "syms": "models/pylaia_ukrainian_retrain_20251102_213431/symbols.txt",
-        "description": "PyLaia CRNN - Ukrainian manuscript (180 symbols, 13.53% CER, retrained)"
-    },
-    "Ukrainian (10.80% CER - OLD)": {
-        "checkpoint": "models/pylaia_ukrainian_pagexml_20251101_182736/best_model.pt",
-        "syms": "models/pylaia_ukrainian_pagexml_20251101_182736/symbols.txt",
-        "description": "PyLaia CRNN - Ukrainian manuscript (180 symbols, 10.80% CER)"
+        "description": "PyLaia CRNN - Ukrainian manuscript (180 symbols, 13.53% CER)"
     },
     "Glagolitic (old)": {
         "checkpoint": "models/pylaia_glagolitic_single_gpu/best_model.pt",
