@@ -463,6 +463,21 @@ class PolyscriptorBatchGUI(QMainWindow):
         method_layout.addWidget(self.seg_method_combo)
         layout.addLayout(method_layout)
 
+        # Custom segmentation model (for kraken-blla)
+        seg_model_layout = QHBoxLayout()
+        seg_model_layout.addWidget(QLabel("Seg Model:"))
+        self.seg_model_edit = QLineEdit()
+        self.seg_model_edit.setPlaceholderText("Default blla model (leave blank)")
+        self.seg_model_edit.setToolTip(
+            "Path to a custom kraken blla .mlmodel file.\n"
+            "Only used when segmentation method is kraken-blla.\n"
+            "Leave blank to use the built-in default.")
+        seg_model_browse = QPushButton("Browse…")
+        seg_model_browse.clicked.connect(self._browse_seg_model)
+        seg_model_layout.addWidget(self.seg_model_edit)
+        seg_model_layout.addWidget(seg_model_browse)
+        layout.addLayout(seg_model_layout)
+
         # PAGE XML checkbox
         self.pagexml_check = QCheckBox("Use PAGE XML (auto-detect from page/ folder)")
         self.pagexml_check.setChecked(True)
@@ -833,6 +848,16 @@ class PolyscriptorBatchGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load presets: {e}")
 
+    def _browse_seg_model(self):
+        """Open file dialog to select a custom blla segmentation model."""
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Segmentation Model", "",
+            "Kraken Models (*.mlmodel);;All Files (*)"
+        )
+        if path:
+            self.seg_model_edit.setText(path)
+
     def _get_current_config(self) -> Dict[str, Any]:
         """Get current configuration as dictionary."""
         config = {
@@ -841,6 +866,7 @@ class PolyscriptorBatchGUI(QMainWindow):
             "engine": self.engine_combo.currentText(),
             "device": self.device_combo.currentText(),
             "segmentation_method": self.seg_method_combo.currentText(),
+            "seg_model": self.seg_model_edit.text().strip() or None,
             "use_pagexml": self.pagexml_check.isChecked(),
         }
 
@@ -931,6 +957,8 @@ class PolyscriptorBatchGUI(QMainWindow):
         # Segmentation
         if config["segmentation_method"] != "none":
             cmd += ["--segmentation-method", config["segmentation_method"]]
+        if config.get("seg_model"):
+            cmd += ["--seg-model", config["seg_model"]]
 
         # PAGE XML
         if config["use_pagexml"]:

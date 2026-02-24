@@ -653,6 +653,21 @@ class TranscriptionGUI(QMainWindow):
         blla_minlines_layout.addStretch()
         blla_layout.addLayout(blla_minlines_layout)
 
+        # Custom model path
+        blla_model_layout = QHBoxLayout()
+        blla_model_layout.addWidget(QLabel("Model:"))
+        self.blla_model_edit = QLineEdit()
+        self.blla_model_edit.setPlaceholderText("Default (pagexml/blla.mlmodel)")
+        self.blla_model_edit.setToolTip(
+            "Path to a custom kraken blla .mlmodel segmentation file.\n"
+            "Leave blank to use the built-in default (pagexml/blla.mlmodel).\n"
+            "Any kraken blla-compatible model can be used here.")
+        blla_model_btn = QPushButton("Browse…")
+        blla_model_btn.clicked.connect(self._browse_blla_model)
+        blla_model_layout.addWidget(self.blla_model_edit)
+        blla_model_layout.addWidget(blla_model_btn)
+        blla_layout.addLayout(blla_model_layout)
+
         self.blla_params_widget.setLayout(blla_layout)
         seg_layout.addWidget(self.blla_params_widget)
 
@@ -1123,6 +1138,16 @@ class TranscriptionGUI(QMainWindow):
         """Legacy method - redirects to _load_images for backwards compatibility."""
         self._load_images()
 
+    def _browse_blla_model(self):
+        """Open file dialog to select a custom blla .mlmodel file."""
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Segmentation Model", "",
+            "Kraken Models (*.mlmodel);;All Files (*)"
+        )
+        if path:
+            self.blla_model_edit.setText(path)
+
     def _on_seg_method_changed(self, index):
         """Handle segmentation method change."""
         method = self.seg_method_combo.currentData()
@@ -1169,8 +1194,10 @@ class TranscriptionGUI(QMainWindow):
                 max_cols = self.blla_max_columns_spin.value() if hasattr(self, 'blla_max_columns_spin') else 4
                 split_frac = (self.blla_split_slider.value() / 100.0) if hasattr(self, 'blla_split_slider') else 0.40
                 min_lines = self.blla_min_lines_spin.value() if hasattr(self, 'blla_min_lines_spin') else 10
+                custom_model = self.blla_model_edit.text().strip() if hasattr(self, 'blla_model_edit') else None
                 regions, kraken_lines = segmenter.segment_with_regions(
                     self.current_image, device=device,
+                    model_path=custom_model or None,
                     max_columns=max_cols,
                     split_width_fraction=split_frac,
                     min_lines_to_split=min_lines,

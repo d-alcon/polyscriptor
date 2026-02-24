@@ -183,6 +183,8 @@ Shared Server Notice:
                        help='Minimum line height in pixels (default: 15)')
     parser.add_argument('--min-gap', type=int, default=5,
                        help='Minimum gap between lines (default: 5)')
+    parser.add_argument('--seg-model', type=Path, default=None,
+                       help='Path to custom segmentation .mlmodel for kraken-blla (default: pagexml/blla.mlmodel)')
 
     # PAGE XML support
     parser.add_argument('--use-pagexml', action='store_true', default=True,
@@ -804,7 +806,8 @@ class BatchHTRProcessor:
                     if self.args.segmentation_method == 'kraken-blla':
                         # Neural baseline segmentation with region detection
                         from inference_page import sort_lines_by_region
-                        regions, blla_lines = self.segmenter.segment_with_regions(image)
+                        seg_model = str(self.args.seg_model) if getattr(self.args, 'seg_model', None) else None
+                        regions, blla_lines = self.segmenter.segment_with_regions(image, model_path=seg_model)
                         self.logger.debug(f"  blla: {len(regions)} regions, {len(blla_lines)} lines")
 
                         # Normalize blla LineSegments to inference_page format
