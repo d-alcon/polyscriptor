@@ -56,14 +56,14 @@ class PyLaiaEngine(HTREngine):
         return "Puigcerver CRNN-CTC: clean-room PyTorch reimplementation of the PyLaia architecture"
 
     def get_aliases(self) -> List[str]:
-        return ["crnn-ctc", "PyLaia"]  # "PyLaia" kept for backward compatibility
+        return ["crnn-ctc", "CRNN-CTC", "PyLaia"]  # "PyLaia" kept for backward compatibility
 
     def is_available(self) -> bool:
         return PYLAIA_AVAILABLE and PYQT_AVAILABLE
 
     def get_unavailable_reason(self) -> str:
         if not PYLAIA_AVAILABLE:
-            return "PyLaia not available. Check that inference_pylaia.py exists and dependencies are installed."
+            return "CRNN-CTC engine not available. Check that inference_pylaia_native.py exists and dependencies are installed."
         if not PYQT_AVAILABLE:
             return "PyQt6 not installed. Install with: pip install PyQt6"
         return ""
@@ -193,9 +193,9 @@ class PyLaiaEngine(HTREngine):
         """Open file dialog to select model file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self._config_widget,
-            "Select PyLaia Model",
+            "Select CRNN-CTC Model",
             "models",
-            "PyLaia Models (*.ckpt *.pth *.pt);;All Files (*)"
+            "CRNN-CTC Models (*.ckpt *.pth *.pt);;All Files (*)"
         )
 
         if file_path:

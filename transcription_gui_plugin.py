@@ -4,7 +4,7 @@ HTR Transcription GUI - Plugin-Based Version
 Unified interface for multiple HTR engines using the plugin system.
 
 Features:
-- Dropdown engine selection (TrOCR, Qwen3, PyLaia, Commercial APIs)
+- Dropdown engine selection (TrOCR, Qwen3, CRNN-CTC, Commercial APIs)
 - Dynamic configuration panels per engine
 - Seamless zoom/pan with QGraphicsView
 - Drag & drop + file dialog import
@@ -914,7 +914,7 @@ class TranscriptionGUI(QMainWindow):
                 return
 
             # Prepare line segments and images for comparison
-            # Handle both line-based models (PyLaia, TrOCR) and page-based models (Qwen, APIs)
+            # Handle both line-based models (CRNN-CTC, TrOCR) and page-based models (Qwen, APIs)
             if self.line_segments:
                 # Line-based: use actual segments
                 line_images = []
@@ -1449,7 +1449,20 @@ class TranscriptionGUI(QMainWindow):
 
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(self.transcriptions))
+                if self.regions and len(self.regions) > 1:
+                    # Region-aware: separate output per region with headers
+                    offset = 0
+                    for ri, region in enumerate(self.regions):
+                        n = len(region.line_ids) if hasattr(region, 'line_ids') else 0
+                        region_lines = self.transcriptions[offset:offset + n]
+                        offset += n
+                        if ri > 0:
+                            f.write("\n")
+                        f.write(f"=== Region {ri + 1} ===\n")
+                        f.write("\n".join(region_lines))
+                        f.write("\n")
+                else:
+                    f.write("\n".join(self.transcriptions))
 
             self.status_bar.showMessage(f"Exported to: {file_path}")
             QMessageBox.information(self, "Success", f"Exported to: {file_path}")
@@ -1512,24 +1525,45 @@ class TranscriptionGUI(QMainWindow):
             img = Image.open(self.current_image_path)
             width, height = img.size
 
-            # If transcriptions exist, add them to segments
-            segments_to_export = self.line_segments.copy()
-            if self.transcriptions and len(self.transcriptions) == len(self.line_segments):
-                # Add transcriptions to segments
-                for i, (seg, text) in enumerate(zip(segments_to_export, self.transcriptions)):
-                    seg.text = text
-
-            # Create exporter and export
-            exporter = PageXMLExporter(str(self.current_image_path), width, height)
-            exporter.export(
-                segments_to_export,
-                file_path,
-                creator="HTR-Transcription-GUI-Plugin",
-                comments=f"Engine: {self.current_engine.get_name() if self.current_engine else 'None'}"
+            transcriptions = (
+                self.transcriptions
+                if self.transcriptions and len(self.transcriptions) == len(self.line_segments)
+                else None
             )
+            engine_name = self.current_engine.get_name() if self.current_engine else 'None'
+            exporter = PageXMLExporter(str(self.current_image_path), width, height)
+
+            if self.regions and len(self.regions) > 1:
+                # Region-aware export: one TextRegion per detected column/region,
+                # TextLines nested inside, actual baseline polylines used.
+                exporter.export_with_regions(
+                    self.regions,
+                    self.line_segments,
+                    file_path,
+                    transcriptions=transcriptions,
+                    creator="HTR-Transcription-GUI-Plugin",
+                    comments=f"Engine: {engine_name}; regions: {len(self.regions)}"
+                )
+                msg = (f"Exported PAGE XML to:\n{file_path}\n"
+                       f"({len(self.regions)} regions, {len(self.line_segments)} lines)")
+            else:
+                # Single-region fallback: all lines in one TextRegion
+                segments_to_export = list(self.line_segments)
+                if transcriptions:
+                    from inference_page import LineSegment as InfLineSegment
+                    for i, (seg, text) in enumerate(zip(segments_to_export, transcriptions)):
+                        if isinstance(seg, InfLineSegment):
+                            seg.text = text
+                exporter.export(
+                    segments_to_export,
+                    file_path,
+                    creator="HTR-Transcription-GUI-Plugin",
+                    comments=f"Engine: {engine_name}"
+                )
+                msg = f"Exported PAGE XML to:\n{file_path}"
 
             self.status_bar.showMessage(f"Exported PAGE XML to: {file_path}")
-            QMessageBox.information(self, "Success", f"Exported PAGE XML to:\n{file_path}")
+            QMessageBox.information(self, "Success", msg)
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to export PAGE XML: {e}")
@@ -1655,7 +1689,7 @@ def main():
             "No HTR engines found. Please install at least one engine:\n\n"
             "- TrOCR: Already included\n"
             "- Qwen3: pip install transformers accelerate peft qwen-vl-utils\n"
-            "- PyLaia: See Documentation/PYLAIA_INSTALLATION_ISSUES.md\n"
+            "- CRNN-CTC: See Documentation/PYLAIA_INSTALLATION_ISSUES.md\n"
             "- Commercial APIs: pip install openai google-generativeai anthropic"
         )
         sys.exit(1)

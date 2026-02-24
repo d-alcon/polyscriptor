@@ -34,7 +34,7 @@ from PyQt6.QtGui import QFont
 
 # Available engines with their configuration needs
 ENGINES = {
-    "PyLaia": {
+    "CRNN-CTC": {
         "needs_model_path": True,
         "needs_model_id": False,
         "default_segmentation": "kraken",
@@ -95,24 +95,24 @@ ENGINES = {
 
 # Built-in presets
 BUILTIN_PRESETS = {
-    "Church Slavonic (PyLaia + Kraken)": {
-        "engine": "PyLaia",
+    "Church Slavonic (CRNN-CTC + Kraken)": {
+        "engine": "CRNN-CTC",
         "model_path": "models/pylaia_church_slavonic_20251103_162857/best_model.pt",
         "segmentation_method": "kraken",
         "use_pagexml": True,
         "device": "cuda:0",
         "output_formats": ["txt"],
     },
-    "Ukrainian (PyLaia + Kraken)": {
-        "engine": "PyLaia",
+    "Ukrainian (CRNN-CTC + Kraken)": {
+        "engine": "CRNN-CTC",
         "model_path": "models/pylaia_ukrainian_pagexml_20251101_182736/best_model.pt",
         "segmentation_method": "kraken",
         "use_pagexml": True,
         "device": "cuda:0",
         "output_formats": ["txt"],
     },
-    "Glagolitic (PyLaia + Kraken)": {
-        "engine": "PyLaia",
+    "Glagolitic (CRNN-CTC + Kraken)": {
+        "engine": "CRNN-CTC",
         "model_path": "models/pylaia_glagolitic_with_spaces_20251102_182103/best_model.pt",
         "segmentation_method": "kraken",
         "use_pagexml": True,
@@ -453,9 +453,10 @@ class PolyscriptorBatchGUI(QMainWindow):
         method_layout = QHBoxLayout()
         method_layout.addWidget(QLabel("Method:"))
         self.seg_method_combo = QComboBox()
-        self.seg_method_combo.addItems(["kraken", "hpp", "none"])
+        self.seg_method_combo.addItems(["kraken", "kraken-blla", "hpp", "none"])
         self.seg_method_combo.setToolTip(
-            "kraken: Neural segmentation (best)\n"
+            "kraken: Kraken classical segmentation\n"
+            "kraken-blla: Kraken Neural (blla) — multi-column, baseline-aware\n"
             "hpp: Horizontal projection (fast)\n"
             "none: Pre-segmented line images"
         )

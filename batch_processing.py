@@ -78,7 +78,7 @@ ENGINE_CONFIG = {
         'default_batch_size': 16,
         'batch_size_range': (8, 32),
         'speed_estimate': 15,
-        'warning': 'Slower than PyLaia/TrOCR but more accurate for complex layouts'
+        'warning': 'Slower than CRNN-CTC/TrOCR but more accurate for complex layouts'
     },
     'Qwen3-VL': {
         'min_device': 'cuda',
@@ -258,7 +258,7 @@ Shared Server Notice:
     if not args.input_folder.exists():
         parser.error(f"Input folder not found: {args.input_folder}")
 
-    if args.engine in ['CRNN-CTC (PyLaia-inspired)', 'crnn-ctc', 'PyLaia', 'TrOCR', 'Churro'] and not (args.model_path or args.model_id):
+    if args.engine in ['CRNN-CTC (PyLaia-inspired)', 'crnn-ctc', 'CRNN-CTC', 'PyLaia', 'TrOCR', 'Churro'] and not (args.model_path or args.model_id):
         parser.error(f"{args.engine} requires --model-path or --model-id")
 
     # OpenWebUI requires API key (from arg or environment)

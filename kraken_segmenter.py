@@ -13,9 +13,14 @@ Supports two modes:
 import os
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, NamedTuple, Tuple, Dict
+from typing import Any, List, Optional, NamedTuple, Tuple, Dict
 from PIL import Image
 import numpy as np
+
+# Module-level cache: maps model path -> loaded TorchVGSLModel.
+# Shared across all KrakenLineSegmenter instances so that the model is loaded
+# from disk only once per process, even in batch processing loops.
+_MODEL_CACHE: Dict[str, Any] = {}
 
 
 class LineSegment(NamedTuple):
@@ -256,20 +261,44 @@ class KrakenLineSegmenter:
         """Run blla.segment() and build SegRegion / LineSegment lists."""
         from kraken import blla
         from kraken.lib import vgsl
+        import torch
 
         start = time.time()
-        model = vgsl.TorchVGSLModel.load_model(model_path)
 
-        # Verify device is valid
-        import torch
+        # Validate device
         if device.startswith('cuda') and not torch.cuda.is_available():
             print(f"[KrakenSegmenter] WARNING: device={device} but CUDA not available, falling back to cpu")
             device = 'cpu'
-        print(f"[KrakenSegmenter] blla running on device={device}")
+
+        # Load model once and cache keyed by (path, device) — repeated calls
+        # reuse the already-loaded, already-placed model. Keying by device means
+        # a CPU and a CUDA instance don't share the same cached object.
+        cache_key = (model_path, device)
+        if cache_key not in _MODEL_CACHE:
+            print(f"[KrakenSegmenter] Loading blla model: {model_path}")
+            m = vgsl.TorchVGSLModel.load_model(model_path)
+            # blla.segment()'s device= parameter does NOT move the model —
+            # it must be placed on the target device explicitly before the call.
+            m.nn.to(device)
+            _MODEL_CACHE[cache_key] = m
+        model = _MODEL_CACHE[cache_key]
+
+        # Diagnostic: confirm model parameters are on the expected device.
+        try:
+            actual_device = next(model.nn.parameters()).device
+            print(f"[KrakenSegmenter] blla model on: {actual_device} (requested: {device})")
+            if device.startswith('cuda') and actual_device.type != 'cuda':
+                print(f"[KrakenSegmenter] WARNING: model is on {actual_device}, not GPU")
+        except Exception:
+            print(f"[KrakenSegmenter] blla running on device={device}")
 
         # blla wants RGB
         img = image.convert('RGB') if image.mode != 'RGB' else image
-        baseline_seg = blla.segment(img, model=model, device=device)
+
+        # blla has built-in autocast support (disabled by default). Enable it
+        # on CUDA for faster fp16 forward pass.
+        baseline_seg = blla.segment(img, model=model, device=device,
+                                    autocast=device.startswith('cuda'))
 
         w, h = image.size
         seg_lines: List[LineSegment] = []
@@ -387,41 +416,65 @@ class KrakenLineSegmenter:
         lines: list,
         page_w: int,
         max_columns: int = 4,
+        min_gap_fraction: float = 0.03,
     ) -> List[int]:
-        """Histogram-based column clustering (reused from pagexml_batch_segmenter)."""
+        """
+        Gap-based column clustering.
+
+        Finds natural breaks in the x-center distribution by looking for the
+        largest gaps in the sorted sequence of line x-centers.  This is more
+        robust than histogram peak-finding for closely spaced columns, because
+        a column gap is a region with *no* line centers — it shows up as a large
+        jump in the sorted sequence regardless of how close the columns are.
+
+        Args:
+            lines:             List of LineSegment objects.
+            page_w:            Width of the region being analysed (pixels).
+            max_columns:       Maximum number of columns to return (≥1).
+            min_gap_fraction:  Minimum gap size as a fraction of *page_w* to be
+                               considered a column boundary.  Default 0.03 (3%).
+                               Increase if spurious splits occur within a column.
+        """
         if not lines:
             return []
 
-        centers = [((l.bbox[0] + l.bbox[2]) // 2) for l in lines]
-        bins = 40
-        hist = [0] * bins
-        for cx in centers:
-            idx = min(bins - 1, max(0, int(cx / (page_w / bins))))
-            hist[idx] += 1
+        # Lines wider than 60% of the region are likely headers/footers that
+        # span columns — exclude them from clustering to avoid false splits.
+        orig_centers = [((l.bbox[0] + l.bbox[2]) // 2) for l in lines]
+        line_widths = [(l.bbox[2] - l.bbox[0]) for l in lines]
+        clustering_centers = [
+            cx for cx, w in zip(orig_centers, line_widths)
+            if w < 0.60 * page_w
+        ]
 
-        max_count = max(hist) if hist else 0
-        if max_count == 0:
+        if not clustering_centers:
+            # All lines are wide (e.g. single full-width text block)
             return [0] * len(lines)
 
-        threshold = max(2, int(0.25 * max_count))
-        peak_idxs = [i for i, v in enumerate(hist) if v >= threshold]
+        min_gap_px = max(10, int(min_gap_fraction * page_w))
+        sorted_cx = sorted(clustering_centers)
 
-        # Merge nearby peaks
-        merged = []
-        prev = None
-        for idx in peak_idxs:
-            if prev is None or idx - prev > 2:
-                merged.append(idx)
-            prev = idx
+        # Compute gaps between consecutive sorted x-centers
+        gaps = [
+            (sorted_cx[i + 1] - sorted_cx[i], (sorted_cx[i] + sorted_cx[i + 1]) // 2)
+            for i in range(len(sorted_cx) - 1)
+            if sorted_cx[i + 1] - sorted_cx[i] >= min_gap_px
+        ]
 
-        if not merged:
-            merged = [hist.index(max_count)]
-        centers_est = [int((i + 0.5) * (page_w / bins)) for i in merged[:max_columns]]
+        if not gaps:
+            return [0] * len(lines)
 
+        # Take the largest max_columns-1 gaps as column boundaries
+        split_midpoints = sorted(
+            mid for _, mid in sorted(gaps, reverse=True)[: max_columns - 1]
+        )
+
+        # Assign each line (using original center) to a column
         assignments = []
-        for cx in centers:
-            nearest = min(range(len(centers_est)), key=lambda j: abs(cx - centers_est[j]))
-            assignments.append(nearest)
+        for cx in orig_centers:
+            col = sum(1 for sp in split_midpoints if cx > sp)
+            assignments.append(col)
+
         return assignments
 
     def _split_wide_regions(
