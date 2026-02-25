@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QLineEdit, QComboBox,
     QFileDialog, QProgressBar, QStatusBar, QMessageBox,
     QListWidget, QListWidgetItem, QGroupBox, QScrollArea, QSlider, QSpinBox, QCheckBox,
-    QFontDialog
+    QFontDialog, QToolButton, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRectF, QPointF, QSettings
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QFont, QAction, QShortcut, QKeySequence
@@ -57,6 +57,55 @@ available_engines = engine_registry.get_available_engines()
 print(f"HTR Engine Plugin System: {len(available_engines)} engines available")
 for engine in available_engines:
     print(f"  - {engine.get_name()}: {engine.get_description()}")
+
+
+class CollapsibleSection(QWidget):
+    """Section with a clickable header that collapses/expands its content."""
+
+    def __init__(self, title, expanded=True, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header button (full-width, checkable, with arrow indicator)
+        self._header = QToolButton()
+        self._header.setText(title)
+        self._header.setCheckable(True)
+        self._header.setChecked(expanded)
+        self._header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._header.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self._header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._header.setStyleSheet(
+            "QToolButton { font-weight: bold; border: 1px solid #999; "
+            "border-radius: 3px; padding: 4px 8px; background: #e8e8e8; }"
+            "QToolButton:hover { background: #d0d0d0; }"
+        )
+        self._header.toggled.connect(self._on_toggled)
+        layout.addWidget(self._header)
+
+        # Content area
+        self._content = QWidget()
+        self.content_layout = QVBoxLayout(self._content)
+        self.content_layout.setContentsMargins(2, 4, 2, 4)
+        self._content.setVisible(expanded)
+        layout.addWidget(self._content)
+
+    def _on_toggled(self, checked):
+        self._content.setVisible(checked)
+        self._header.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+        # Notify parent layout that our size hint changed
+        self.updateGeometry()
+
+    def set_expanded(self, expanded):
+        self._header.setChecked(expanded)
+
+    def is_expanded(self):
+        return self._header.isChecked()
 
 
 class ZoomableGraphicsView(QGraphicsView):
@@ -539,13 +588,15 @@ class TranscriptionGUI(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
 
-        # Logo display at top
+        # Logo display at top (smaller on FHD to save space)
         logo_handler = get_logo_handler()
         logo_label = QLabel()
-        logo_pixmap = logo_handler.get_logo_pixmap(width=300)
+        screen_height = QApplication.primaryScreen().availableGeometry().height()
+        logo_width = 200 if screen_height < 1200 else 300
+        logo_pixmap = logo_handler.get_logo_pixmap(width=logo_width)
         logo_label.setPixmap(logo_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_label.setStyleSheet("padding: 10px;")
+        logo_label.setStyleSheet("padding: 5px;" if screen_height < 1200 else "padding: 10px;")
         left_layout.addWidget(logo_label)
 
         # Image view
@@ -571,7 +622,10 @@ class TranscriptionGUI(QMainWindow):
         left_layout.addLayout(img_controls)
 
         # Draw mode controls: rectangle drawing for manual re-segmentation
-        draw_controls = QHBoxLayout()
+        # Hidden until blla segmentation populates self.regions
+        self.draw_controls_widget = QWidget()
+        draw_controls = QHBoxLayout(self.draw_controls_widget)
+        draw_controls.setContentsMargins(0, 0, 0, 0)
 
         self.btn_draw_mode = QPushButton("Draw Regions")
         self.btn_draw_mode.setCheckable(True)
@@ -592,7 +646,8 @@ class TranscriptionGUI(QMainWindow):
         btn_clear_drawn.setToolTip("Remove all drawn rectangles.")
         draw_controls.addWidget(btn_clear_drawn)
 
-        left_layout.addLayout(draw_controls)
+        self.draw_controls_widget.setVisible(False)
+        left_layout.addWidget(self.draw_controls_widget)
 
         self.btn_draw_mode.toggled.connect(self._toggle_draw_mode)
         self.btn_resegment_drawn.clicked.connect(self._resegment_drawn_regions)
@@ -631,9 +686,9 @@ class TranscriptionGUI(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
 
-        # Segmentation settings
-        seg_group = QGroupBox("Segmentation Settings")
-        seg_layout = QVBoxLayout()
+        # --- Segmentation Settings (collapsible) ---
+        self.seg_section = CollapsibleSection("Segmentation Settings")
+        seg_layout = self.seg_section.content_layout
 
         # Check if Kraken is available
         try:
@@ -797,16 +852,11 @@ class TranscriptionGUI(QMainWindow):
         # Set initial visibility based on default method
         self._on_seg_method_changed(self.seg_method_combo.currentIndex())
 
-        seg_group.setLayout(seg_layout)
-        left_layout.addWidget(seg_group)    
+        right_layout.addWidget(self.seg_section)
 
-        # Right panel: Engine selection and transcription
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-
-        # Engine selection
-        engine_group = QGroupBox("HTR Engine")
-        engine_layout = QVBoxLayout()
+        # --- HTR Engine (collapsible) ---
+        self.engine_section = CollapsibleSection("HTR Engine", expanded=False)
+        engine_content = self.engine_section.content_layout
 
         self.engine_combo = QComboBox()
         if not available_engines:
@@ -816,30 +866,30 @@ class TranscriptionGUI(QMainWindow):
                 self.engine_combo.addItem(engine.get_name())
 
         self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
-        engine_layout.addWidget(self.engine_combo)
+        engine_content.addWidget(self.engine_combo)
 
         # Engine description
         self.engine_desc_label = QLabel("")
         self.engine_desc_label.setWordWrap(True)
         self.engine_desc_label.setStyleSheet("color: gray; font-size: 12pt;")
-        engine_layout.addWidget(self.engine_desc_label)
+        engine_content.addWidget(self.engine_desc_label)
 
-        engine_group.setLayout(engine_layout)
-        right_layout.addWidget(engine_group)
-
-        # Dynamic engine configuration panel
+        # Dynamic engine configuration container
+        # Wrapped in a scroll area so tall configs don't push export buttons off-screen.
+        # No minimum height (collapses if empty); max height caps growth.
         config_scroll = QScrollArea()
         config_scroll.setWidgetResizable(True)
-        config_scroll.setMinimumHeight(300)
+        config_scroll.setFrameShape(config_scroll.Shape.NoFrame)
 
         self.config_container = QWidget()
         self.config_layout = QVBoxLayout(self.config_container)
         self.config_layout.addStretch()
-
         config_scroll.setWidget(self.config_container)
-        right_layout.addWidget(config_scroll)
+        engine_content.addWidget(config_scroll)
 
-        # Load/Process buttons
+        right_layout.addWidget(self.engine_section)
+
+        # Load/Process buttons — outside collapsible section so always visible
         process_layout = QHBoxLayout()
 
         self.btn_load_model = QPushButton("Load Model")
@@ -858,8 +908,8 @@ class TranscriptionGUI(QMainWindow):
         self.progress_bar.setVisible(False)
         right_layout.addWidget(self.progress_bar)
 
-        # Transcription results (horizontal split: text + statistics)
-        results_group = QGroupBox("Transcriptions")
+        # Transcription results — splitter fills all remaining space
+        self.results_group = QGroupBox("Transcriptions")
         results_layout = QVBoxLayout()
 
         # Horizontal splitter for text and statistics
@@ -876,34 +926,38 @@ class TranscriptionGUI(QMainWindow):
 
         self.results_splitter.addWidget(self.text_container)
 
-        # Right: Statistics panel (compact, scrollable)
+        # Right: Statistics panel (hidden by default on FHD, toggle via button below)
         self.stats_scroll = QScrollArea()
         self.stats_scroll.setWidgetResizable(True)
-        self.stats_scroll.setMinimumWidth(180)  # Minimum for readable stats
-        # REMOVED: setMaximumWidth(300) - Let user decide stats panel width
+        self.stats_scroll.setMinimumWidth(180)
 
         self.stats_panel = StatisticsPanel()
         self.stats_scroll.setWidget(self.stats_panel)
 
         self.results_splitter.addWidget(self.stats_scroll)
 
-        # Set minimum widths
-        self.transcription_text.setMinimumWidth(400)  # Minimum for text
+        self.transcription_text.setMinimumWidth(400)
+        self.results_splitter.setCollapsible(0, False)
+        self.results_splitter.setCollapsible(1, True)
 
-        # Set initial sizes (78% text, 22% stats at 1152px right panel)
-        # At 1152px: ~900px text, ~250px stats
-        self.results_splitter.setSizes([900, 250])
-
-        # Add collapsible behavior
-        self.results_splitter.setCollapsible(0, False)  # Text cannot collapse
-        self.results_splitter.setCollapsible(1, True)   # Stats can collapse (hide)
+        # Stats panel hidden by default; user clicks Stats button to show
+        self.results_splitter.setSizes([1, 0])
 
         results_layout.addWidget(self.results_splitter)
+        self.results_group.setLayout(results_layout)
+        right_layout.addWidget(self.results_group, stretch=1)
 
-        # Export and comparison buttons (below splitter)
+        # When engine section expands, hide transcription area (gives config room to breathe)
+        self.engine_section._header.toggled.connect(
+            lambda checked: self.results_group.setVisible(not checked)
+        )
+        # Set initial state to match engine section (collapsed → transcription visible)
+        self.results_group.setVisible(not self.engine_section.is_expanded())
+
+        # Export + comparison + stats toggle row — pinned at the very bottom of right_layout
+        # (outside results_group so it is always visible regardless of section heights)
         export_layout = QHBoxLayout()
 
-        # Compare button (checkable - toggles comparison mode)
         self.btn_compare = QPushButton("⚖ Compare")
         self.btn_compare.setCheckable(True)
         self.btn_compare.setStyleSheet("""
@@ -919,7 +973,7 @@ class TranscriptionGUI(QMainWindow):
         self.btn_compare.toggled.connect(self.toggle_comparison_mode)
         export_layout.addWidget(self.btn_compare)
 
-        export_layout.addStretch()  # Push export buttons to the right
+        export_layout.addStretch()
 
         btn_export_txt = QPushButton("Export TXT")
         btn_export_txt.clicked.connect(self.export_txt)
@@ -933,10 +987,14 @@ class TranscriptionGUI(QMainWindow):
         btn_export_xml.clicked.connect(self.export_xml)
         export_layout.addWidget(btn_export_xml)
 
-        results_layout.addLayout(export_layout)
+        self.btn_stats_toggle = QPushButton("Stats")
+        self.btn_stats_toggle.setCheckable(True)
+        self.btn_stats_toggle.setChecked(False)  # always off at startup
+        self.btn_stats_toggle.setToolTip("Show/hide statistics panel")
+        self.btn_stats_toggle.toggled.connect(self._toggle_stats_panel)
+        export_layout.addWidget(self.btn_stats_toggle)
 
-        results_group.setLayout(results_layout)
-        right_layout.addWidget(results_group, stretch=1)
+        right_layout.addLayout(export_layout)
 
         # Add right panel to main splitter
         self.main_splitter.addWidget(right_panel)
@@ -960,6 +1018,11 @@ class TranscriptionGUI(QMainWindow):
         # Initialize first engine
         if available_engines:
             self.on_engine_changed(self.engine_combo.currentText())
+
+        # Auto-collapse seg settings on FHD (< 1200px height)
+        # engine_section always starts collapsed (expanding hides transcription area)
+        if screen_height < 1200:
+            self.seg_section.set_expanded(False)
 
     def setup_menu_bar(self):
         """Setup menu bar with view presets."""
@@ -1112,9 +1175,13 @@ class TranscriptionGUI(QMainWindow):
                 self.comparison_widget.unload_comparison_engine()
                 self.comparison_widget.hide()
 
-                # Restore statistics panel
+                # Restore statistics panel (respect current toggle state)
                 self.results_splitter.replaceWidget(1, self.stats_scroll)
-                self.stats_scroll.show()
+                if self.btn_stats_toggle.isChecked():
+                    self.stats_scroll.show()
+                    self.results_splitter.setSizes([700, 250])
+                else:
+                    self.results_splitter.setSizes([1, 0])
 
                 # Delete comparison widget
                 self.comparison_widget.deleteLater()
@@ -1125,6 +1192,13 @@ class TranscriptionGUI(QMainWindow):
 
             self.comparison_mode_active = False
             self.status_bar.showMessage("Comparison mode closed")
+
+    def _toggle_stats_panel(self, show: bool):
+        """Show or hide the statistics panel in the results splitter."""
+        if show:
+            self.results_splitter.setSizes([700, 250])
+        else:
+            self.results_splitter.setSizes([1, 0])
 
     def update_process_button_state(self):
         """Update process button enabled state based on current conditions."""
@@ -1280,6 +1354,10 @@ class TranscriptionGUI(QMainWindow):
         self.kraken_params_widget.setVisible(False)
         if hasattr(self, 'blla_params_widget'):
             self.blla_params_widget.setVisible(False)
+
+        # Show/hide draw controls based on whether blla is selected
+        if hasattr(self, 'draw_controls_widget'):
+            self.draw_controls_widget.setVisible(method == "KrakenBLLA")
 
         if method == "Kraken":
             self.kraken_params_widget.setVisible(True)
@@ -1632,6 +1710,9 @@ class TranscriptionGUI(QMainWindow):
             QMessageBox.warning(self, "No Image", "Please load an image first")
             return
 
+        # Collapse engine section so progress bar and transcription area are visible
+        self.engine_section.set_expanded(False)
+
         # For VLMs that don't need segmentation, create a fake line segment with the full image
         line_segments = self.line_segments
         if not line_segments and not self.current_engine.requires_line_segmentation():
@@ -1900,7 +1981,8 @@ class TranscriptionGUI(QMainWindow):
             results_state = settings.value('splitter/results')
             if results_state:
                 self.results_splitter.restoreState(results_state)
-            # else: use initial sizes set in setup_ui (900, 250)
+            # Always enforce stats panel state to match button (button starts OFF)
+            self._toggle_stats_panel(self.btn_stats_toggle.isChecked())
 
             # Restore last used engine
             last_engine = settings.value('engine/last_used')
