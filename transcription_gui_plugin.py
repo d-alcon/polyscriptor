@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QLineEdit, QComboBox,
     QFileDialog, QProgressBar, QStatusBar, QMessageBox,
     QListWidget, QListWidgetItem, QGroupBox, QScrollArea, QSlider, QSpinBox, QCheckBox,
-    QFontDialog, QToolButton, QSizePolicy
+    QFontDialog, QToolButton, QSizePolicy, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRectF, QPointF, QSettings
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QFont, QAction, QShortcut, QKeySequence
@@ -945,14 +945,19 @@ class TranscriptionGUI(QMainWindow):
 
         results_layout.addWidget(self.results_splitter)
         self.results_group.setLayout(results_layout)
-        right_layout.addWidget(self.results_group, stretch=1)
 
-        # When engine section expands, hide transcription area (gives config room to breathe)
+        # Wrap results_group in a QStackedWidget so comparison can take over the full area
+        self.results_stack = QStackedWidget()
+        self.results_stack.addWidget(self.results_group)  # page 0: normal view
+        # comparison widget will be added as page 1 dynamically
+        right_layout.addWidget(self.results_stack, stretch=1)
+
+        # When engine section expands, hide results area (gives config room to breathe)
         self.engine_section._header.toggled.connect(
-            lambda checked: self.results_group.setVisible(not checked)
+            lambda checked: self.results_stack.setVisible(not checked)
         )
-        # Set initial state to match engine section (collapsed → transcription visible)
-        self.results_group.setVisible(not self.engine_section.is_expanded())
+        # Set initial state to match engine section (collapsed → results visible)
+        self.results_stack.setVisible(not self.engine_section.is_expanded())
 
         # Export + comparison + stats toggle row — pinned at the very bottom of right_layout
         # (outside results_group so it is always visible regardless of section heights)
@@ -1157,10 +1162,10 @@ class TranscriptionGUI(QMainWindow):
             # Set base transcriptions
             self.comparison_widget.set_base_transcriptions(self.transcriptions)
 
-            # Hide statistics panel and replace with comparison widget
-            self.stats_scroll.hide()
-            self.results_splitter.replaceWidget(1, self.comparison_widget)
-            self.comparison_widget.show()
+            # Add comparison widget to stack and switch to it (full content area)
+            self.results_stack.addWidget(self.comparison_widget)
+            self.results_stack.setCurrentWidget(self.comparison_widget)
+            self.btn_stats_toggle.setEnabled(False)
 
             # Update button text
             self.btn_compare.setText("⚖ Comparison Active")
@@ -1171,25 +1176,21 @@ class TranscriptionGUI(QMainWindow):
         else:
             # Close comparison mode
             if self.comparison_widget:
-                # Clean up comparison widget
+                # Terminate worker if still running (closed via main button, not ✕)
+                if (self.comparison_widget.comparison_worker and
+                        self.comparison_widget.comparison_worker.isRunning()):
+                    self.comparison_widget.comparison_worker.terminate()
+                    self.comparison_widget.comparison_worker.wait()
                 self.comparison_widget.unload_comparison_engine()
-                self.comparison_widget.hide()
 
-                # Restore statistics panel (respect current toggle state)
-                self.results_splitter.replaceWidget(1, self.stats_scroll)
-                if self.btn_stats_toggle.isChecked():
-                    self.stats_scroll.show()
-                    self.results_splitter.setSizes([700, 250])
-                else:
-                    self.results_splitter.setSizes([1, 0])
-
-                # Delete comparison widget
+                # Switch back to normal view and remove comparison from stack
+                self.results_stack.setCurrentWidget(self.results_group)
+                self.results_stack.removeWidget(self.comparison_widget)
                 self.comparison_widget.deleteLater()
                 self.comparison_widget = None
 
-            # Update button text
+            self.btn_stats_toggle.setEnabled(True)
             self.btn_compare.setText("⚖ Compare")
-
             self.comparison_mode_active = False
             self.status_bar.showMessage("Comparison mode closed")
 

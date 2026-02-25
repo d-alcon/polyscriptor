@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from PyQt6.QtWidgets import (
-        QCheckBox, QComboBox, QFileDialog, QGroupBox,
+        QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox,
         QHBoxLayout, QLabel, QLineEdit, QPushButton,
         QSlider, QSpinBox, QVBoxLayout, QWidget,
     )
@@ -106,6 +106,7 @@ class DeepSeekOCREngine(HTREngine):
         self._image_size_label: Optional[QLabel] = None
         self._crop_mode_checkbox: Optional[QCheckBox] = None
         self._device_combo: Optional[QComboBox] = None
+        self._repetition_penalty_spin: Optional[QDoubleSpinBox] = None
 
     # ------------------------------------------------------------------
     # Identity
@@ -214,6 +215,26 @@ class DeepSeekOCREngine(HTREngine):
         strip_hint.setStyleSheet("color: gray; font-size: 9pt;")
         output_layout.addWidget(self._strip_markdown_checkbox)
         output_layout.addWidget(strip_hint)
+
+        # Repetition penalty
+        rep_row = QHBoxLayout()
+        rep_row.addWidget(QLabel("Repetition penalty:"))
+        self._repetition_penalty_spin = QDoubleSpinBox()
+        self._repetition_penalty_spin.setRange(1.0, 2.0)
+        self._repetition_penalty_spin.setSingleStep(0.05)
+        self._repetition_penalty_spin.setDecimals(2)
+        self._repetition_penalty_spin.setValue(1.3)
+        self._repetition_penalty_spin.setToolTip(
+            "Penalise repeated tokens during generation.\n"
+            "1.0 = disabled (risk of loops), 1.3 = recommended,\n"
+            "1.5+ = strong suppression (may hurt accuracy)."
+        )
+        rep_row.addWidget(self._repetition_penalty_spin)
+        rep_row.addStretch()
+        output_layout.addLayout(rep_row)
+        rep_hint = QLabel("1.3 recommended — reduces hallucination/repetition loops")
+        rep_hint.setStyleSheet("color: gray; font-size: 9pt;")
+        output_layout.addWidget(rep_hint)
 
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
@@ -334,6 +355,7 @@ class DeepSeekOCREngine(HTREngine):
                 "image_size": 640,
                 "crop_mode": True,
                 "device": "cuda:0",
+                "repetition_penalty": 1.3,
             }
 
         ocr_mode_text = self._ocr_mode_combo.currentText()
@@ -348,6 +370,7 @@ class DeepSeekOCREngine(HTREngine):
             "image_size": self._image_size_slider.value(),
             "crop_mode": self._crop_mode_checkbox.isChecked(),
             "device": self._device_combo.currentText(),
+            "repetition_penalty": self._repetition_penalty_spin.value(),
         }
 
     def set_config(self, config: Dict[str, Any]):
@@ -366,6 +389,7 @@ class DeepSeekOCREngine(HTREngine):
         self._base_size_slider.setValue(config.get("base_size", 1024))
         self._image_size_slider.setValue(config.get("image_size", 640))
         self._crop_mode_checkbox.setChecked(config.get("crop_mode", True))
+        self._repetition_penalty_spin.setValue(config.get("repetition_penalty", 1.3))
 
         device = config.get("device", "cuda:0")
         idx = self._device_combo.findText(device)
@@ -443,6 +467,7 @@ class DeepSeekOCREngine(HTREngine):
                 "base_size": config.get("base_size", 1024),
                 "image_size": config.get("image_size", 640),
                 "crop_mode": config.get("crop_mode", True),
+                "repetition_penalty": config.get("repetition_penalty", 1.3),
             })
 
             result = subprocess.run(

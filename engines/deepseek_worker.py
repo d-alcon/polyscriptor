@@ -15,13 +15,14 @@ Usage:
     python deepseek_worker.py '<config_json>' '<image_path>'
 
 Config keys (JSON):
-    model_id     – HuggingFace model ID or local path (default: deepseek-ai/DeepSeek-OCR-2)
-    device       – "cuda:0", "cuda:1", "cpu" (default: "cuda:0")
-    ocr_mode     – "document" (markdown with layout) or "free" (plain text) (default: "document")
-    strip_markdown – bool, remove markdown symbols from output (default: false)
-    base_size    – int, patch resolution base (512–2048, default: 1024)
-    image_size   – int, output resolution (512–1024, default: 768)
-    crop_mode    – bool, enable crop mode (default: true)
+    model_id           – HuggingFace model ID or local path (default: deepseek-ai/DeepSeek-OCR-2)
+    device             – "cuda:0", "cuda:1", "cpu" (default: "cuda:0")
+    ocr_mode           – "document" (markdown with layout) or "free" (plain text) (default: "document")
+    strip_markdown     – bool, remove markdown symbols from output (default: false)
+    base_size          – int, patch resolution base (512–2048, default: 1024)
+    image_size         – int, output resolution (512–1024, default: 640)
+    crop_mode          – bool, enable crop mode (default: true)
+    repetition_penalty – float, penalise repeated tokens (1.0 = disabled, default: 1.3)
 
 Writes a single JSON object to stdout:
     {"text": "...", "model_id": "deepseek-ai/DeepSeek-OCR-2", "ocr_mode": "document"}
@@ -92,6 +93,7 @@ def main():
     base_size = config.get("base_size", 1024)
     image_size = config.get("image_size", 640)
     crop_mode = config.get("crop_mode", True)
+    repetition_penalty = float(config.get("repetition_penalty", 1.3))
 
     try:
         # Detect flash-attn availability
@@ -110,6 +112,10 @@ def main():
         )
         model = model.to(device)
         model.eval()
+
+        # Suppress repetition loops — common in autoregressive OCR on easy images
+        if repetition_penalty != 1.0:
+            model.generation_config.repetition_penalty = repetition_penalty
 
         if ocr_mode == "document":
             prompt = "<image>\nOCR the document with markdown format."
