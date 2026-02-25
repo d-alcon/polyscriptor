@@ -570,8 +570,14 @@ class ComparisonWidget(QWidget):
 
     @staticmethod
     def _normalize_text(text: str) -> str:
-        """Remove blank lines while preserving content lines and their spacing."""
-        return "\n".join(line for line in text.splitlines() if line.strip())
+        """Remove blank lines and join content lines with a single space.
+
+        Joining with space (not \\n) means CER/WER are computed on flat text,
+        matching standard HTR evaluation practice and avoiding inflation from
+        misaligned newline positions between page-level and line-level engines.
+        QTextEdit word-wraps the flat text for display automatically.
+        """
+        return " ".join(line for line in text.splitlines() if line.strip())
 
     def set_base_transcriptions(self, transcriptions: List[str]):
         """Set transcriptions from base engine."""
@@ -665,6 +671,8 @@ class ComparisonWidget(QWidget):
         )
         if not file_path:
             return
+        if not file_path.lower().endswith(".csv"):
+            file_path += ".csv"
 
         try:
             import datetime
@@ -809,6 +817,8 @@ class ComparisonWidget(QWidget):
         )
         if not file_path:
             return
+        if not file_path.lower().endswith(".html"):
+            file_path += ".html"
 
         try:
             line_count = min(len(references), len(hypotheses))
