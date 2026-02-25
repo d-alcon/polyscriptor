@@ -7,6 +7,7 @@ IMPORTANT: Churro uses Qwen2_5_VLForConditionalGeneration (Qwen2.5), NOT Qwen3VL
 This is a different model class from the Qwen3 engine!
 """
 
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 import numpy as np
@@ -83,6 +84,7 @@ class ChurroEngine(HTREngine):
         self._max_tokens_spin: Optional[QSpinBox] = None
         self._prompt_preset_combo: Optional[QComboBox] = None
         self._prompt_text_edit: Optional[QTextEdit] = None
+        self._strip_xml_checkbox: Optional[QCheckBox] = None
 
     def get_name(self) -> str:
         return "Churro VLM"
@@ -208,6 +210,18 @@ class ChurroEngine(HTREngine):
         tokens_layout.addWidget(tokens_hint)
         gen_layout.addLayout(tokens_layout)
 
+        # Strip XML tags
+        self._strip_xml_checkbox = QCheckBox("Strip XML tags from output")
+        self._strip_xml_checkbox.setChecked(True)
+        self._strip_xml_checkbox.setToolTip(
+            "Remove XML tags (e.g. <line>, <text>) from Churro output.\n"
+            "Disable only if you need the raw structured XML."
+        )
+        gen_layout.addWidget(self._strip_xml_checkbox)
+        strip_hint = QLabel("On by default — disable only if you need raw XML")
+        strip_hint.setStyleSheet("color: gray; font-size: 9pt;")
+        gen_layout.addWidget(strip_hint)
+
         gen_group.setLayout(gen_layout)
         layout.addWidget(gen_group)
 
@@ -322,7 +336,8 @@ class ChurroEngine(HTREngine):
             "max_new_tokens": self._max_tokens_spin.value(),
             # Prompt configuration
             "prompt_preset": self._prompt_preset_combo.currentData(),
-            "prompt_text": self._prompt_text_edit.toPlainText().strip()
+            "prompt_text": self._prompt_text_edit.toPlainText().strip(),
+            "strip_xml": self._strip_xml_checkbox.isChecked(),
         }
 
         return config
@@ -358,6 +373,8 @@ class ChurroEngine(HTREngine):
         if prompt_preset == "custom":
             custom_text = config.get("prompt_text", "")
             self._prompt_text_edit.setPlainText(custom_text)
+
+        self._strip_xml_checkbox.setChecked(config.get("strip_xml", True))
 
     def load_model(self, config: Dict[str, Any]) -> bool:
         """Load Churro model."""
@@ -411,6 +428,33 @@ class ChurroEngine(HTREngine):
         """Check if model is loaded."""
         return self.model is not None
 
+    @staticmethod
+    def _strip_xml_tags(text: str) -> str:
+        """
+        Remove XML markup from Churro output while preserving text structure.
+
+        Rules:
+        - <Language>...</Language> (and similar metadata tags) → removed entirely
+          including their content
+        - All other tags → removed, text content kept
+        - Lines that become empty after tag removal → dropped
+        - Word spacing and line breaks within text lines → preserved
+        """
+        # Remove metadata tags and their content (Language, language, etc.)
+        text = re.sub(r'<Language>.*?</Language>', '', text,
+                      flags=re.IGNORECASE | re.DOTALL)
+
+        # Process line by line so we can drop tag-only lines
+        result_lines = []
+        for line in text.splitlines():
+            # Strip all remaining tags from this line
+            stripped = re.sub(r'<[^>]+>', '', line)
+            # Keep the line only if it has non-whitespace content
+            if stripped.strip():
+                result_lines.append(stripped)
+
+        return '\n'.join(result_lines)
+
     def _get_prompt_from_config(self, config: Optional[Dict[str, Any]]) -> str:
         """Extract prompt from config."""
         if not config:
@@ -429,6 +473,9 @@ class ChurroEngine(HTREngine):
         if self.model is None:
             return TranscriptionResult(text="[Model not loaded]", confidence=0.0)
 
+        if config is None:
+            config = self.get_config()
+
         try:
             # Convert numpy to PIL
             from PIL import Image
@@ -439,7 +486,7 @@ class ChurroEngine(HTREngine):
 
             # Get prompt and settings
             prompt = self._get_prompt_from_config(config)
-            max_tokens = config.get("max_new_tokens", 500) if config else 500
+            max_tokens = config.get("max_new_tokens", 500)
 
             # Use transcribe_line method (shorter max_tokens for lines)
             result = self.model.transcribe_line(
@@ -448,8 +495,12 @@ class ChurroEngine(HTREngine):
                 max_new_tokens=min(max_tokens, 1000)  # Cap at 1000 for single lines
             )
 
+            text = result.text
+            if config and config.get("strip_xml", False):
+                text = self._strip_xml_tags(text)
+
             return TranscriptionResult(
-                text=result.text,
+                text=text,
                 confidence=result.confidence,
                 metadata={
                     "model": "churro-vlm",
@@ -471,12 +522,15 @@ class ChurroEngine(HTREngine):
         if self.model is None:
             return [TranscriptionResult(text="[Model not loaded]", confidence=0.0) for _ in images]
 
+        if config is None:
+            config = self.get_config()
+
         try:
             from PIL import Image
 
             # Get prompt once for all images
             prompt = self._get_prompt_from_config(config)
-            max_tokens = config.get("max_new_tokens", 500) if config else 500
+            max_tokens = config.get("max_new_tokens", 500)
 
             results = []
 
@@ -494,8 +548,12 @@ class ChurroEngine(HTREngine):
                     max_new_tokens=min(max_tokens, 1000)
                 )
 
+                text = result.text
+                if config and config.get("strip_xml", False):
+                    text = self._strip_xml_tags(text)
+
                 results.append(TranscriptionResult(
-                    text=result.text,
+                    text=text,
                     confidence=result.confidence,
                     metadata={
                         "model": "churro-vlm",
