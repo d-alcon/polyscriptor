@@ -121,6 +121,13 @@ ENGINE_CONFIG = {
         'batch_size_range': (8, 32),
         'speed_estimate': 25,
         'warning': 'LINE-LEVEL model (~4GB VRAM). Requires transformers from git source.'
+    },
+    'PaddleOCR': {
+        'min_device': 'cpu',
+        'default_batch_size': 1,
+        'batch_size_range': (1, 1),
+        'speed_estimate': 15,
+        'warning': 'Requires separate PaddleOCR venv (venv_paddle). Use --paddle-venv to specify path.'
     }
 }
 
@@ -249,6 +256,12 @@ Shared Server Notice:
                        help='LightOnOCR longest edge for image resize (512-1024, default: 700)')
     parser.add_argument('--max-new-tokens', type=int, default=256,
                        help='LightOnOCR max new tokens (64-512, default: 256)')
+
+    # PaddleOCR-specific
+    parser.add_argument('--paddle-venv', type=Path, default=None,
+                       help='Path to PaddleOCR venv (default: venv_paddle next to this script)')
+    parser.add_argument('--paddle-lang', type=str, default='en',
+                       help='PaddleOCR language code (default: en). Examples: ch, de, fr, ru, uk, la')
 
     # Safety flags
     parser.add_argument('--i-understand-this-is-slow', action='store_true',
@@ -677,6 +690,13 @@ class BatchHTRProcessor:
             config['base_size'] = self.args.base_size
             config['image_size'] = self.args.image_size
             config['crop_mode'] = self.args.crop_mode
+
+        # PaddleOCR-specific
+        if self.args.engine == 'PaddleOCR':
+            script_dir = Path(__file__).parent
+            default_venv = script_dir / 'venv_paddle'
+            config['venv_path'] = str(self.args.paddle_venv or default_venv)
+            config['lang'] = self.args.paddle_lang or 'en'
 
         # LightOnOCR-specific
         if self.args.engine == 'LightOnOCR':

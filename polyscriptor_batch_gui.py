@@ -91,6 +91,22 @@ ENGINES = {
         "has_lighton_options": True,  # Enable LightOnOCR-specific controls
         "warning": "Requires transformers from git: pip install git+https://github.com/huggingface/transformers.git",
     },
+    "DeepSeek-OCR": {
+        "needs_model_path": False,
+        "needs_model_id": False,   # Uses default deepseek-ai/DeepSeek-OCR-2 from HF cache
+        "default_segmentation": "none",  # Page-level VLM
+        "supports_beams": False,
+        "has_deepseek_options": True,
+        "warning": "PAGE-LEVEL model (~6 GB VRAM). Requires venv_deepseek with transformers==4.46.3.",
+    },
+    "PaddleOCR": {
+        "needs_model_path": False,
+        "needs_model_id": False,
+        "default_segmentation": "none",  # PaddleOCR does its own detection
+        "supports_beams": False,
+        "has_paddle_options": True,
+        "warning": "Requires separate PaddleOCR venv (venv_paddle). Models download on first use.",
+    },
 }
 
 # Built-in presets
@@ -441,6 +457,58 @@ class PolyscriptorBatchGUI(QMainWindow):
         self.lighton_group.setVisible(False)  # Hidden by default
         layout.addWidget(self.lighton_group)
 
+        # DeepSeek-OCR-specific controls
+        self.deepseek_group = QGroupBox("DeepSeek-OCR Settings")
+        deepseek_layout = QVBoxLayout()
+
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("OCR Mode:"))
+        self.deepseek_mode_combo = QComboBox()
+        self.deepseek_mode_combo.addItems(["document", "free"])
+        self.deepseek_mode_combo.setToolTip(
+            "document: includes layout analysis (markdown output)\nfree: plain text output"
+        )
+        mode_layout.addWidget(self.deepseek_mode_combo)
+        mode_layout.addStretch()
+        deepseek_layout.addLayout(mode_layout)
+
+        self.deepseek_strip_md_check = QCheckBox("Strip Markdown formatting")
+        self.deepseek_strip_md_check.setToolTip("Remove markdown symbols from output text")
+        deepseek_layout.addWidget(self.deepseek_strip_md_check)
+
+        self.deepseek_group.setLayout(deepseek_layout)
+        self.deepseek_group.setVisible(False)
+        layout.addWidget(self.deepseek_group)
+
+        # PaddleOCR-specific controls
+        self.paddle_group = QGroupBox("PaddleOCR Settings")
+        paddle_layout = QVBoxLayout()
+
+        venv_layout = QHBoxLayout()
+        venv_layout.addWidget(QLabel("Venv path:"))
+        self.paddle_venv_edit = QLineEdit()
+        self.paddle_venv_edit.setPlaceholderText("venv_paddle  (leave blank for default)")
+        self.paddle_venv_edit.setToolTip("Path to PaddleOCR virtualenv. Default: venv_paddle next to this script.")
+        venv_layout.addWidget(self.paddle_venv_edit)
+        paddle_venv_browse = QPushButton("Browse")
+        paddle_venv_browse.clicked.connect(self._browse_paddle_venv)
+        venv_layout.addWidget(paddle_venv_browse)
+        paddle_layout.addLayout(venv_layout)
+
+        lang_layout = QHBoxLayout()
+        lang_layout.addWidget(QLabel("Language:"))
+        self.paddle_lang_edit = QLineEdit("en")
+        self.paddle_lang_edit.setToolTip(
+            "PaddleOCR language code. Examples: en, ch, de, fr, ru, uk, la, ar, japan, korean"
+        )
+        lang_layout.addWidget(self.paddle_lang_edit)
+        lang_layout.addStretch()
+        paddle_layout.addLayout(lang_layout)
+
+        self.paddle_group.setLayout(paddle_layout)
+        self.paddle_group.setVisible(False)
+        layout.addWidget(self.paddle_group)
+
         group.setLayout(layout)
         return group
 
@@ -599,6 +667,12 @@ class PolyscriptorBatchGUI(QMainWindow):
         if folder:
             self.adapter_edit.setText(folder)
 
+    def _browse_paddle_venv(self):
+        """Browse for PaddleOCR venv directory."""
+        folder = QFileDialog.getExistingDirectory(self, "Select PaddleOCR Venv Directory")
+        if folder:
+            self.paddle_venv_edit.setText(folder)
+
     def _refresh_openwebui_models(self):
         """Fetch available models from OpenWebUI API."""
         api_key = self.api_key_edit.text().strip()
@@ -697,6 +771,12 @@ class PolyscriptorBatchGUI(QMainWindow):
         # Show/hide LightOnOCR-specific controls
         has_lighton = config.get("has_lighton_options", False)
         self.lighton_group.setVisible(has_lighton)
+
+        # Show/hide DeepSeek-OCR-specific controls
+        self.deepseek_group.setVisible(config.get("has_deepseek_options", False))
+
+        # Show/hide PaddleOCR-specific controls
+        self.paddle_group.setVisible(config.get("has_paddle_options", False))
 
         # Set default segmentation method
         default_seg = config.get("default_segmentation", "kraken")
@@ -921,6 +1001,18 @@ class PolyscriptorBatchGUI(QMainWindow):
             if prompt:
                 config["lighton_prompt"] = prompt
 
+        # DeepSeek-OCR-specific
+        if config["engine"] == "DeepSeek-OCR":
+            config["deepseek_mode"] = self.deepseek_mode_combo.currentText()
+            config["deepseek_strip_md"] = self.deepseek_strip_md_check.isChecked()
+
+        # PaddleOCR-specific
+        if config["engine"] == "PaddleOCR":
+            venv = self.paddle_venv_edit.text().strip()
+            if venv:
+                config["paddle_venv"] = venv
+            config["paddle_lang"] = self.paddle_lang_edit.text().strip() or "en"
+
         return config
 
     def _build_command(self, dry_run: bool = False) -> List[str]:
@@ -995,6 +1087,18 @@ class PolyscriptorBatchGUI(QMainWindow):
             if config.get("lighton_prompt"):
                 cmd += ["--prompt", config["lighton_prompt"]]
 
+        # DeepSeek-OCR-specific
+        if config.get("engine") == "DeepSeek-OCR":
+            cmd += ["--ocr-mode", config["deepseek_mode"]]
+            if config.get("deepseek_strip_md"):
+                cmd += ["--strip-markdown"]
+
+        # PaddleOCR-specific
+        if config.get("engine") == "PaddleOCR":
+            if config.get("paddle_venv"):
+                cmd += ["--paddle-venv", config["paddle_venv"]]
+            cmd += ["--paddle-lang", config.get("paddle_lang", "en")]
+
         return cmd
 
     def _update_command_preview(self):
@@ -1037,6 +1141,14 @@ class PolyscriptorBatchGUI(QMainWindow):
         self.longest_edge_spin.valueChanged.connect(self._update_command_preview)
         self.max_new_tokens_spin.valueChanged.connect(self._update_command_preview)
         self.lighton_prompt_edit.textChanged.connect(self._update_command_preview)
+
+        # DeepSeek-OCR-specific
+        self.deepseek_mode_combo.currentTextChanged.connect(self._update_command_preview)
+        self.deepseek_strip_md_check.stateChanged.connect(self._update_command_preview)
+
+        # PaddleOCR-specific
+        self.paddle_venv_edit.textChanged.connect(self._update_command_preview)
+        self.paddle_lang_edit.textChanged.connect(self._update_command_preview)
 
     def _validate_config(self) -> Optional[str]:
         """Validate current configuration. Returns error message or None."""
