@@ -547,6 +547,7 @@ class TranscriptionGUI(QMainWindow):
         self.line_segments: List[LineSegment] = []
         self.transcriptions: List[str] = []
         self.current_engine: Optional[HTREngine] = None
+        self.transcription_engine: Optional[HTREngine] = None  # engine that produced self.transcriptions
         self.worker: Optional[TranscriptionWorker] = None
         self.comparison_widget: Optional[ComparisonWidget] = None
         self.comparison_mode_active: bool = False
@@ -1107,29 +1108,31 @@ class TranscriptionGUI(QMainWindow):
         """Toggle comparison mode on/off."""
         if enabled:
             # Validate prerequisites
-            if not self.current_engine or not self.current_engine.is_model_loaded():
-                QMessageBox.warning(self, "No Model",
-                                   "Please load an engine and model first!")
-                self.btn_compare.setChecked(False)
-                return
-
             if not self.transcriptions:
                 QMessageBox.warning(self, "No Transcriptions",
                                    "Please process the image first!")
                 self.btn_compare.setChecked(False)
                 return
 
+            if not self.transcription_engine:
+                QMessageBox.warning(self, "No Base Engine",
+                                   "Cannot determine which engine produced the transcription.")
+                self.btn_compare.setChecked(False)
+                return
+
             # Prepare line segments and images for comparison
             # Handle both line-based models (CRNN-CTC, TrOCR) and page-based models (Qwen, APIs)
             if self.line_segments:
-                # Line-based: use actual segments
+                # Line-based: use pre-cropped images from segments (already properly cropped)
                 line_images = []
-                if self.current_image:
-                    img_np = np.array(self.current_image)
-                    for segment in self.line_segments:
-                        x, y, w, h = segment.bbox
-                        line_img = img_np[y:y+h, x:x+w]
-                        line_images.append(line_img)
+                for segment in self.line_segments:
+                    if segment.image is not None:
+                        line_images.append(np.array(segment.image))
+                    elif self.current_image:
+                        # Fallback: crop from full image using (x1,y1,x2,y2) bbox
+                        x1, y1, x2, y2 = segment.bbox
+                        img_np = np.array(self.current_image)
+                        line_images.append(img_np[y1:y2, x1:x2])
             else:
                 # Page-based: treat whole page as single "line"
                 from inference_page import LineSegment
@@ -1143,9 +1146,10 @@ class TranscriptionGUI(QMainWindow):
                 )]
                 line_images = [np.array(self.current_image)]
 
-            # Create comparison widget
+            # Create comparison widget — use transcription_engine (the engine that
+            # produced self.transcriptions), not current_engine (which may have changed)
             self.comparison_widget = ComparisonWidget(
-                self.current_engine,
+                self.transcription_engine,
                 self.line_segments,
                 line_images,
                 self
@@ -1759,6 +1763,7 @@ class TranscriptionGUI(QMainWindow):
     def on_transcription_finished(self, transcriptions: List[str], metadata: Dict[str, Any] = None):
         """Handle completion of transcription."""
         self.transcriptions = transcriptions
+        self.transcription_engine = self.current_engine  # snapshot which engine produced these
 
         # Display results (without "Line X:" prefix)
         result_text = "\n".join(transcriptions)

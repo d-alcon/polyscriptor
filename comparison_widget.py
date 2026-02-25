@@ -177,6 +177,9 @@ class ComparisonWidget(QWidget):
         parent=None
     ):
         super().__init__(parent)
+        # Store main GUI reference separately — parentWidget() changes after
+        # addWidget() re-parents us to the QStackedWidget
+        self._main_gui = parent
         self.base_engine = base_engine
         self.line_segments = line_segments
         self.line_images = line_images
@@ -377,6 +380,28 @@ class ComparisonWidget(QWidget):
         self.mode_stack.setCurrentIndex(0 if self.engine_mode_radio.isChecked() else 1)
         self.update_display()
 
+    def _refresh_line_images_from_parent(self):
+        """Re-read line segments and images from parent GUI (handles late layout analysis)."""
+        parent = self._main_gui
+        if parent is None:
+            return
+        # Try to get current line segments from the main GUI
+        segments = getattr(parent, 'line_segments', None)
+        current_image = getattr(parent, 'current_image', None)
+        if not segments:
+            return  # No segments available yet — keep whatever we have
+        line_images = []
+        for seg in segments:
+            if getattr(seg, 'image', None) is not None:
+                line_images.append(np.array(seg.image))
+            elif current_image:
+                x1, y1, x2, y2 = seg.bbox
+                img_np = np.array(current_image)
+                line_images.append(img_np[y1:y2, x1:x2])
+        if line_images:
+            self.line_segments = segments
+            self.line_images = line_images
+
     def load_and_transcribe_engine(self):
         """Load comparison engine and transcribe all lines."""
         engine_name = self.engine_combo.currentText()
@@ -393,17 +418,32 @@ class ComparisonWidget(QWidget):
             if not self.comparison_engine:
                 raise Exception(f"Engine '{engine_name}' not found")
 
-            # Check if model is already loaded (use existing model if available)
-            if self.comparison_engine.is_model_loaded():
-                self.status_message.emit(f"Using already-loaded {engine_name} model")
-            else:
-                # Get default config and load model
-                config = self.comparison_engine.get_config()
+            # Require model to be pre-loaded in the main panel.
+            # This ensures the correct model + config is used (e.g. the right
+            # CRNN-CTC checkpoint). The user loads the model via the HTR Engine
+            # section first, then switches to comparison mode.
+            if not self.comparison_engine.is_model_loaded():
+                QMessageBox.warning(
+                    self, "Model Not Loaded",
+                    f"Please load a model for '{engine_name}' in the main HTR Engine "
+                    f"panel first (select the engine, configure the model path, and "
+                    f"click 'Load Model'), then return to comparison mode."
+                )
+                self.status_message.emit(f"{engine_name}: no model loaded — load it in the main panel first")
+                return
 
-                # Load model
-                self.status_message.emit(f"Loading {engine_name} model...")
-                if not self.comparison_engine.load_model(config):
-                    raise Exception("Failed to load model")
+            self.status_message.emit(f"Using already-loaded {engine_name} model")
+
+            # Refresh line images in case layout analysis was run after comparison
+            # mode was activated (captures the latest segments)
+            self._refresh_line_images_from_parent()
+
+            if not self.line_images:
+                QMessageBox.warning(
+                    self, "No Line Images",
+                    "No line segments found. Please run layout analysis first."
+                )
+                return
 
             # Start transcription in background
             self.status_message.emit(f"Transcribing {len(self.line_images)} lines with {engine_name}...")
@@ -432,7 +472,23 @@ class ComparisonWidget(QWidget):
 
     def on_transcription_finished(self, results: List[TranscriptionResult]):
         """Handle transcription completion."""
-        self.comparison_transcriptions = [r.text for r in results]
+        raw = [r.text for r in results]
+        base_count = len(self.base_transcriptions)
+
+        # Normalize count mismatches between page-level and line-level engines
+        if base_count == 1 and len(raw) > 1:
+            # Page-based base (e.g. Qwen) vs line-based comparison (e.g. CRNN-CTC):
+            # join all comparison lines for a page-level diff
+            self.comparison_transcriptions = ["\n".join(raw)]
+        elif base_count > 1 and len(raw) == 1:
+            # Line-based base vs page-based comparison: split comparison by newlines
+            split = raw[0].split("\n")
+            while len(split) < base_count:
+                split.append("")
+            self.comparison_transcriptions = split[:base_count]
+        else:
+            self.comparison_transcriptions = raw
+
         self.right_label.setText(f"{self.engine_combo.currentText()} (Comparison)")
 
         # Re-enable buttons
@@ -512,6 +568,11 @@ class ComparisonWidget(QWidget):
         self.update_display()
         self.status_message.emit("Ground truth cleared")
 
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Remove blank lines while preserving content lines and their spacing."""
+        return "\n".join(line for line in text.splitlines() if line.strip())
+
     def set_base_transcriptions(self, transcriptions: List[str]):
         """Set transcriptions from base engine."""
         self.base_transcriptions = transcriptions
@@ -526,7 +587,7 @@ class ComparisonWidget(QWidget):
 
     def show_next_line(self):
         """Navigate to next line."""
-        if self.current_line_idx < len(self.line_segments) - 1:
+        if self.current_line_idx < len(self.base_transcriptions) - 1:
             self.current_line_idx += 1
             self.update_display()
 
@@ -535,14 +596,15 @@ class ComparisonWidget(QWidget):
         if not self.base_transcriptions:
             return
 
-        # Update line label and navigation buttons
-        total_lines = len(self.line_segments)
+        # Use transcription count as authoritative total (handles page-vs-line mismatch)
+        total_lines = len(self.base_transcriptions)
+        self.current_line_idx = min(self.current_line_idx, total_lines - 1)
         self.line_label.setText(f"Line {self.current_line_idx + 1} of {total_lines}")
         self.prev_btn.setEnabled(self.current_line_idx > 0)
         self.next_btn.setEnabled(self.current_line_idx < total_lines - 1)
 
-        # Get base transcription
-        base_text = self.base_transcriptions[self.current_line_idx]
+        # Get base transcription (safe index), strip blank lines for display
+        base_text = self._normalize_text(self.base_transcriptions[self.current_line_idx])
 
         # Determine reference and hypothesis based on mode
         if self.gt_mode_radio.isChecked() and self.ground_truth:
@@ -561,9 +623,10 @@ class ComparisonWidget(QWidget):
                 return
 
         elif self.comparison_transcriptions:
-            # Engine vs Engine mode
+            # Engine vs Engine mode (safe index with fallback)
             reference = base_text
-            hypothesis = self.comparison_transcriptions[self.current_line_idx]
+            hyp_idx = min(self.current_line_idx, len(self.comparison_transcriptions) - 1)
+            hypothesis = self._normalize_text(self.comparison_transcriptions[hyp_idx])
             self.left_label.setText(f"{self.base_engine.get_name()} (Base)")
             self.right_label.setText(f"{self.engine_combo.currentText()} (Comparison)")
         else:
