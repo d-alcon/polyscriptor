@@ -54,6 +54,7 @@ unpacked-datasets/
 *.csv
 *.txt
 !requirements.txt
+!requirements-gpu.txt
 !README.txt
 
 # Images and media
@@ -161,6 +162,8 @@ monitor_*.sh
 # Test and debug scripts (temporary)
 check_*.py
 test_*.py
+# Exception: web API test suite is a proper test, not a throwaway script
+!web/tests/test_server.py
 
 # Accidentally created files
 =*
@@ -208,6 +211,27 @@ htr_gui/
 # Training logs
 training_ukrainian_v2c.log
 nohup.out
+nohup_*.log
+
+# Lightning logs
+lightning_logs/
+
+# Internal planning docs
+*_PLAN.md
+PLAN_*.md
+
+# Training run scripts (local)
+run_party_*.sh
+
+# Jupyter notebooks (local experiments)
+*.ipynb
+
+# Web UI upload temp dirs (created at runtime)
+/tmp/polyscriptor_uploads_*/
+
+# Web UI key store (contains API keys — never commit)
+web/api_keys.json
+web/uploads/
 
 # Diagnostic and inspection scripts (temporary)
 diagnose_exif_mismatch.py

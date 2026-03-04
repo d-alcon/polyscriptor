@@ -59,13 +59,11 @@ class PyLaiaEngine(HTREngine):
         return ["crnn-ctc", "CRNN-CTC", "PyLaia"]  # "PyLaia" kept for backward compatibility
 
     def is_available(self) -> bool:
-        return PYLAIA_AVAILABLE and PYQT_AVAILABLE
+        return PYLAIA_AVAILABLE
 
     def get_unavailable_reason(self) -> str:
         if not PYLAIA_AVAILABLE:
             return "CRNN-CTC engine not available. Check that inference_pylaia_native.py exists and dependencies are installed."
-        if not PYQT_AVAILABLE:
-            return "PyQt6 not installed. Install with: pip install PyQt6"
         return ""
 
     def get_config_widget(self) -> QWidget:

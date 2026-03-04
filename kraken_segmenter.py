@@ -335,12 +335,18 @@ class KrakenLineSegmenter:
         # Sub-split wide regions that likely contain multiple columns.
         # blla often detects "left page" and "right page" as two regions on a
         # double-page spread, but each page may have 2 columns internally.
-        regions_dict = self._split_wide_regions(
-            regions_dict, w,
-            min_lines_to_split=min_lines_to_split,
-            split_width_fraction=split_width_fraction,
-            max_columns=max_columns,
-        )
+        # Loop until convergence: a single pass may leave wide sub-regions that
+        # need further splitting (e.g. a 3-column area assigned as one bucket).
+        for _round in range(max_columns):
+            prev_size = len(regions_dict)
+            regions_dict = self._split_wide_regions(
+                regions_dict, w,
+                min_lines_to_split=min_lines_to_split,
+                split_width_fraction=split_width_fraction,
+                max_columns=max_columns,
+            )
+            if len(regions_dict) == prev_size:
+                break  # no new splits — converged
 
         # Build SegRegion objects
         regions, ordered_lines = self._build_regions(regions_dict, seg_lines, w)
@@ -351,10 +357,20 @@ class KrakenLineSegmenter:
 
     # ── internal: classical fallback with column clustering ──────────
 
+    def segment_classical_with_regions(
+        self,
+        image: Image.Image,
+        min_line_height: int = 15,
+        max_columns: int = 4,
+    ) -> Tuple[List[SegRegion], List[LineSegment]]:
+        """Public wrapper: classical pageseg + heuristic column clustering."""
+        return self._segment_classical_with_regions(image, min_line_height, max_columns)
+
     def _segment_classical_with_regions(
         self,
         image: Image.Image,
-        min_line_height: int,
+        min_line_height: int = 15,
+        max_columns: int = 4,
     ) -> Tuple[List[SegRegion], List[LineSegment]]:
         """Classical pageseg + heuristic column clustering."""
         raw_lines = self.segment_lines(image)
@@ -365,8 +381,8 @@ class KrakenLineSegmenter:
         raw_lines = [l for l in raw_lines if (l.bbox[3] - l.bbox[1]) >= min_line_height]
 
         w = image.size[0]
-        # Cluster into columns
-        regions_dict = self._cluster_into_columns(raw_lines, w)
+        # Cluster into columns (pass max_columns so 4-column spreads are handled)
+        regions_dict = self._cluster_into_columns(raw_lines, w, max_columns=max_columns)
         regions, ordered_lines = self._build_regions(regions_dict, raw_lines, w)
         for r in regions:
             r.mode = "classical"
@@ -554,9 +570,10 @@ class KrakenLineSegmenter:
         self,
         lines: list,
         page_w: int,
+        max_columns: int = 4,
     ) -> Dict[str, dict]:
         """Cluster lines into columns and return regions_dict."""
-        assignments = self._estimate_columns(lines, page_w)
+        assignments = self._estimate_columns(lines, page_w, max_columns=max_columns)
         regions_dict: Dict[str, dict] = {}
         for idx, (col, line) in enumerate(zip(assignments, lines)):
             key = f"col_{col}"

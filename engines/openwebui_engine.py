@@ -108,13 +108,11 @@ class OpenWebUIEngine(HTREngine):
         return "OpenWebUI API from openwebui.uni-freiburg.de (OpenAI-compatible, multiple models)"
 
     def is_available(self) -> bool:
-        return OPENAI_AVAILABLE and PYQT_AVAILABLE
+        return OPENAI_AVAILABLE
 
     def get_unavailable_reason(self) -> str:
         if not OPENAI_AVAILABLE:
             return "OpenAI library not installed. Install with: pip install openai"
-        if not PYQT_AVAILABLE:
-            return "PyQt6 not installed. Install with: pip install PyQt6"
         return ""
 
     def get_config_widget(self) -> QWidget:
@@ -367,6 +365,10 @@ class OpenWebUIEngine(HTREngine):
             # Save API key for future use
             if self._api_key_edit and self._api_key_edit.text().strip():
                 self._save_api_key()
+
+            # Allow base_url override from config (web UI field or CLI)
+            if config.get("base_url", "").strip():
+                self.base_url = config["base_url"].strip()
 
             # Initialize client
             self.client = OpenAI(

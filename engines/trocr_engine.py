@@ -52,13 +52,11 @@ class TrOCREngine(HTREngine):
         return "Transformer-based OCR optimized for handwritten manuscripts"
 
     def is_available(self) -> bool:
-        return TROCR_AVAILABLE and PYQT_AVAILABLE
+        return TROCR_AVAILABLE
 
     def get_unavailable_reason(self) -> str:
         if not TROCR_AVAILABLE:
             return "TrOCR inference module not available. Check that inference_page.py exists."
-        if not PYQT_AVAILABLE:
-            return "PyQt6 not installed. Install with: pip install PyQt6"
         return ""
 
     def get_config_widget(self) -> QWidget:

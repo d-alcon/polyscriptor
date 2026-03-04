@@ -93,13 +93,11 @@ class ChurroEngine(HTREngine):
         return "Historical document OCR (Qwen2.5-VL-3B fine-tuned on 155 collections)"
 
     def is_available(self) -> bool:
-        return CHURRO_AVAILABLE and PYQT_AVAILABLE
+        return CHURRO_AVAILABLE
 
     def get_unavailable_reason(self) -> str:
         if not CHURRO_AVAILABLE:
             return "Churro not available. Check inference_churro.py and transformers>=4.37.0"
-        if not PYQT_AVAILABLE:
-            return "PyQt6 not installed. Install with: pip install PyQt6"
         return ""
 
     def get_config_widget(self) -> QWidget:

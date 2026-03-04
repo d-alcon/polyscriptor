@@ -85,13 +85,11 @@ class CommercialAPIEngine(HTREngine):
         return "OpenAI GPT-4V, Google Gemini, Anthropic Claude vision APIs"
 
     def is_available(self) -> bool:
-        return COMMERCIAL_API_AVAILABLE and PYQT_AVAILABLE and any(API_AVAILABILITY.values())
+        return COMMERCIAL_API_AVAILABLE and any(API_AVAILABILITY.values())
 
     def get_unavailable_reason(self) -> str:
         if not COMMERCIAL_API_AVAILABLE:
             return "Commercial API support not available. Install with: pip install openai google-generativeai anthropic"
-        if not PYQT_AVAILABLE:
-            return "PyQt6 not installed. Install with: pip install PyQt6"
         if not any(API_AVAILABILITY.values()):
             return "No API libraries installed. Install at least one: openai, google-generativeai, or anthropic"
         return ""

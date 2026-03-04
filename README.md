@@ -54,12 +54,18 @@ cd polyscriptor
 python3 -m venv htr_env
 source htr_env/bin/activate  # Linux/Mac
 # or: htr_env\Scripts\activate  # Windows
+```
 
-# Install dependencies
+**GPU install (CUDA 12.1 — Linux/Windows with NVIDIA GPU):**
+```bash
+# Install CUDA torch first, then the rest
+pip install -r requirements-gpu.txt --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
+```
 
-# Install PyTorch with CUDA support (if you have a GPU)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+**CPU-only install (no GPU required):**
+```bash
+pip install -r requirements.txt
 ```
 
 ### 2. Launch GUI for inference
@@ -154,6 +160,16 @@ python3 train_pylaia.py \
 ├── qwen3_prompts.py                 # Custom prompts for Qwen3-VL
 │
 ├── requirements.txt                 # Python dependencies
+│
+├── web/                             # Browser-based web interface
+│   ├── polyscriptor_server.py      # FastAPI backend (SSE streaming)
+│   ├── static/
+│   │   ├── index.html              # Single-page app
+│   │   ├── app.js                  # State management, event bus
+│   │   ├── app.css                 # Styles
+│   │   └── components/             # ES6 modules (engine, viewer, transcription, batch)
+│   └── tests/
+│       └── test_server.py          # API tests (pytest + FastAPI TestClient)
 │
 └── models/                          # Trained models (excluded from git)
     ├── pylaia_*/                    # CRNN-CTC model checkpoints
@@ -306,6 +322,63 @@ PaddleOCR uses **ISO language codes** (not script names). Enter the code in the 
 
 ---
 
+## 🌐 Web UI (Browser-Based Interface)
+
+**Polyscriptor includes a browser-based web interface** — run inference on a remote GPU server and interact from any browser, no X11 forwarding or local install needed.
+
+### Quick Start
+
+```bash
+# Web dependencies are included in requirements.txt — no extra install needed.
+
+# Activate your virtual environment first:
+source htr_env/bin/activate    # Linux/Mac
+# or: htr_env\Scripts\activate  # Windows
+
+# Start the server (run from the project root)
+uvicorn web.polyscriptor_server:app --host 0.0.0.0 --port 8765
+
+# Open in browser
+# Local: http://localhost:8765
+# Remote: use SSH tunnel (see below)
+```
+
+> **Works without a GPU.** Commercial APIs (Gemini, Claude, OpenAI) and TrOCR run on CPU. CRNN-CTC also runs on CPU — inference is slower (~1–2 min/page) but fully functional, and our published Church Slavonic, Ukrainian and Glagolitic models all work this way. Only Qwen3-VL and LightOnOCR require a GPU.
+
+### Remote Access via SSH Tunnel
+
+```bash
+# On your laptop — tunnel port 8765 through SSH
+ssh -L 8765:localhost:8765 user@your.server.edu
+
+# Then open: http://localhost:8765
+# No firewall issues — works on any university network
+```
+
+### Features
+
+- **Engine selection** with dynamic configuration forms (CRNN-CTC, TrOCR, Kraken, etc.)
+- **Image upload** — drag-and-drop, file picker, or PDF upload (multi-page PDFs become batch items)
+- **Segmentation** — Kraken (neural blla or classical) with color-coded region overlay
+- **Live transcription** — Server-Sent Events stream, lines appear as processed
+- **Batch queue** — multi-image queue, drag-to-reorder, cancel, prev/next navigation
+- **Inline editing** — double-click any transcription line to correct it
+- **Confidence filter** — slider to dim low-confidence lines
+- **Export** — TXT, CSV, PAGE XML (single image or ZIP for entire batch)
+- **Font selector** — Monomakh Unicode (recommended for Church Slavonic), Old Standard TT, and others
+- **Kraken model presets** — 12 Zenodo community models with one-click download
+- **Resizable panels** — drag handles to adjust column widths, saved across sessions
+
+### Running Tests
+
+```bash
+source htr_env/bin/activate
+pip install pytest httpx
+pytest web/tests/test_server.py -v
+```
+
+---
+
 ## 🖥️ Remote Server Usage
 
 Running on a remote Linux server without GUI? You have several options:
@@ -356,6 +429,7 @@ vncserver :1 -geometry 1920x1080
 | Method | Speed | Best For | Network Type |
 |--------|-------|----------|--------------|
 | CLI Batch Processing | ⚡⚡⚡ | Production, automation | Any |
+| **Web UI** | ⚡⚡⚡ | **Interactive work, no install needed** | Any (SSH tunnel) |
 | X11 Forwarding | ⚡⚡ | Interactive GUI work | LAN/Local WiFi |
 | X11 Forwarding | ⚡ | Light use only | Internet |
 | VNC/NoMachine | ⚡⚡ | Extended sessions, poor connections | Any |

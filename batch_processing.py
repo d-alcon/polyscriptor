@@ -35,6 +35,29 @@ from tqdm import tqdm
 # Some high-resolution scans exceed the default 178MP limit
 Image.MAX_IMAGE_PIXELS = None
 
+# PDF support via PyMuPDF
+try:
+    import fitz  # PyMuPDF
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+
+def pdf_to_images(pdf_path: Path, dpi: int = 150) -> List[Image.Image]:
+    """Render each page of a PDF to a PIL Image at the given DPI."""
+    if not PDF_AVAILABLE:
+        raise RuntimeError("PyMuPDF not installed. Install with: pip install pymupdf")
+    import fitz as _fitz
+    doc = _fitz.open(str(pdf_path))
+    mat = _fitz.Matrix(dpi / 72, dpi / 72)
+    images = []
+    for page in doc:
+        pix = page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
+        images.append(Image.frombytes("RGB", [pix.width, pix.height], pix.samples))
+    doc.close()
+    return images
+
+
 # HTR Engine imports
 from htr_engine_base import HTREngine, TranscriptionResult, get_global_registry
 
@@ -263,6 +286,14 @@ Shared Server Notice:
     parser.add_argument('--paddle-lang', type=str, default='en',
                        help='PaddleOCR language code (default: en). Examples: ch, de, fr, ru, uk, la')
 
+    # Kraken preset models (Zenodo auto-download)
+    parser.add_argument('--kraken-preset', type=str, default=None,
+                       help='Kraken preset model name — auto-downloads from Zenodo on first use. '
+                            'Overrides --model-path for Kraken engine. '
+                            'Available: blla-local, catmus-print-fondue, medieval-latin, '
+                            'legal-historical, greek-ancient, fraktur-german, english-early-modern, '
+                            'arabic-manuscripts, hebrew-ancient, classical-chinese, japanese-historical')
+
     # Safety flags
     parser.add_argument('--i-understand-this-is-slow', action='store_true',
                        help='Required flag for Qwen3 with >50 images')
@@ -306,7 +337,9 @@ Shared Server Notice:
 
 
 def discover_images(input_folder: Path, verbose: bool = False) -> List[Path]:
-    """Discover all image files in folder (recursive)."""
+    """Discover all image files in folder (recursive). PDFs are expanded page-by-page."""
+    import tempfile
+
     extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp']
     images = []
 
@@ -314,14 +347,43 @@ def discover_images(input_folder: Path, verbose: bool = False) -> List[Path]:
         images.extend(input_folder.rglob(f'*{ext}'))
         images.extend(input_folder.rglob(f'*{ext.upper()}'))
 
-    images = sorted(set(images))  # Remove duplicates, sort
+    images = sorted(set(images))
+
+    # Expand PDF files
+    pdf_files = sorted(set(
+        list(input_folder.rglob('*.pdf')) + list(input_folder.rglob('*.PDF'))
+    ))
+    if pdf_files:
+        if not PDF_AVAILABLE:
+            print(f"⚠️  {len(pdf_files)} PDF(s) found but PyMuPDF not installed — skipping. "
+                  "Install with: pip install pymupdf")
+        else:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="polyscriptor_pdf_"))
+            for pdf_path in pdf_files:
+                try:
+                    pages = pdf_to_images(pdf_path)
+                    for i, img in enumerate(pages, 1):
+                        out = tmp_dir / f"{pdf_path.stem}_page{i:03d}.png"
+                        img.save(str(out))
+                        images.append(out)
+                    if verbose:
+                        print(f"  📄 {pdf_path.name}: expanded {len(pages)} pages")
+                except Exception as e:
+                    print(f"  ⚠️  Could not expand PDF {pdf_path.name}: {e}")
+
+    images = sorted(images)  # final sort (mixes pages into correct order)
 
     if verbose:
         print(f"\n{'='*60}")
-        print(f"Found {len(images)} images in {input_folder}")
+        print(f"Found {len(images)} images in {input_folder} "
+              f"({len(pdf_files)} PDF(s) expanded)" if pdf_files else
+              f"Found {len(images)} images in {input_folder}")
         print(f"{'='*60}")
         for img in images[:10]:
-            print(f"  - {img.relative_to(input_folder)}")
+            try:
+                print(f"  - {img.relative_to(input_folder)}")
+            except ValueError:
+                print(f"  - {img.name}")
         if len(images) > 10:
             print(f"  ... and {len(images) - 10} more")
         print(f"{'='*60}\n")
@@ -690,6 +752,20 @@ class BatchHTRProcessor:
             config['base_size'] = self.args.base_size
             config['image_size'] = self.args.image_size
             config['crop_mode'] = self.args.crop_mode
+
+        # Kraken preset model (auto-download from Zenodo)
+        if self.args.engine == 'Kraken' and getattr(self.args, 'kraken_preset', None):
+            try:
+                from engines.kraken_engine import download_preset_model
+                preset_path = download_preset_model(self.args.kraken_preset)
+                if preset_path:
+                    config['model_path'] = preset_path
+                    config['preset_id'] = self.args.kraken_preset
+                    self.logger.info(f"✓ Kraken preset '{self.args.kraken_preset}' → {preset_path}")
+                else:
+                    self.logger.warning(f"⚠️  Could not resolve Kraken preset '{self.args.kraken_preset}'")
+            except Exception as e:
+                self.logger.warning(f"⚠️  Kraken preset error: {e}")
 
         # PaddleOCR-specific
         if self.args.engine == 'PaddleOCR':

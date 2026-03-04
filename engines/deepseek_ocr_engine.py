@@ -63,7 +63,12 @@ _WORKER_SCRIPT = Path(__file__).resolve().parent / "deepseek_worker.py"
 
 def _find_venv_python(venv_path: Path) -> Optional[Path]:
     """Return the Python interpreter inside a venv, or None if not found."""
-    for candidate in [venv_path / "bin" / "python", venv_path / "bin" / "python3"]:
+    import sys as _sys
+    if _sys.platform == "win32":
+        candidates = [venv_path / "Scripts" / "python.exe"]
+    else:
+        candidates = [venv_path / "bin" / "python", venv_path / "bin" / "python3"]
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     return None
@@ -71,7 +76,12 @@ def _find_venv_python(venv_path: Path) -> Optional[Path]:
 
 def _venv_has_transformers(venv_path: Path) -> bool:
     """Check that transformers is installed in the venv (filesystem, no subprocess)."""
-    for sp_dir in (venv_path / "lib").glob("python*/site-packages/transformers"):
+    import sys as _sys
+    if _sys.platform == "win32":
+        candidates = [(venv_path / "Lib" / "site-packages" / "transformers",)]
+    else:
+        candidates = list((venv_path / "lib").glob("python*/site-packages/transformers"))
+    for sp_dir in candidates:
         if sp_dir.is_dir():
             return True
     return False

@@ -19,6 +19,15 @@ import sys
 import json
 import time
 from pathlib import Path
+
+# Windows console defaults to CP-1252; reconfigure to UTF-8 so Cyrillic output
+# and emoji from engine code don't raise UnicodeEncodeError. No-op on Linux/macOS.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        pass  # Python < 3.7 — reconfigure not available
 from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from PIL import Image
@@ -780,8 +789,9 @@ class TranscriptionGUI(QMainWindow):
                 for i in range(torch.cuda.device_count()):
                     name = torch.cuda.get_device_name(i)
                     self.blla_device_combo.addItem(f"GPU {i}: {name}", f"cuda:{i}")
-                # Default to first GPU
-                self.blla_device_combo.setCurrentIndex(1)
+                # Default to first GPU (only if GPUs were actually added)
+                if torch.cuda.device_count() > 0:
+                    self.blla_device_combo.setCurrentIndex(1)
         except ImportError:
             pass
         blla_device_layout.addWidget(self.blla_device_combo)
@@ -1257,19 +1267,63 @@ class TranscriptionGUI(QMainWindow):
             QMessageBox.warning(self, "Error", "Failed to load model. Check console for details.")
 
     def _load_images(self):
-        """Open file dialog to select one or more images."""
+        """Open file dialog to select one or more images or PDFs."""
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Images",
+            "Select Images or PDFs",
             "",
-            "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp);;All Files (*)"
+            "Images & PDFs (*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.pdf);;"
+            "PDF Files (*.pdf);;"
+            "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp);;"
+            "All Files (*)"
         )
 
         if not file_paths:
             return
 
-        # Store image list and set index to first image
-        self.image_list = [Path(p) for p in file_paths]
+        expanded = []
+        for p_str in file_paths:
+            p = Path(p_str)
+            if p.suffix.lower() == '.pdf':
+                try:
+                    import fitz as _fitz
+                    import tempfile
+                    doc = _fitz.open(str(p))
+                    n = len(doc)
+                    doc.close()
+                    load_all = True
+                    if n > 1:
+                        reply = QMessageBox.question(
+                            self, "PDF",
+                            f"'{p.name}' has {n} pages. Load all pages?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        )
+                        load_all = (reply == QMessageBox.StandardButton.Yes)
+                    tmp = Path(tempfile.mkdtemp(prefix="polyscriptor_pdf_"))
+                    mat = _fitz.Matrix(150 / 72, 150 / 72)
+                    doc = _fitz.open(str(p))
+                    pages_to_render = range(len(doc)) if load_all else range(1)
+                    for i in pages_to_render:
+                        page = doc[i]
+                        pix = page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
+                        from PIL import Image as _PIL
+                        img = _PIL.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        out = tmp / f"{p.stem}_page{i+1:03d}.png"
+                        img.save(str(out))
+                        expanded.append(out)
+                    doc.close()
+                except ImportError:
+                    QMessageBox.warning(self, "PDF Error",
+                        "PyMuPDF not installed. Install with:\npip install pymupdf")
+                except Exception as e:
+                    QMessageBox.warning(self, "PDF Error", f"Could not open PDF: {e}")
+            else:
+                expanded.append(p)
+
+        if not expanded:
+            return
+
+        self.image_list = expanded
         self.current_image_index = 0
         self._display_current_image()
         self._update_navigation_ui()

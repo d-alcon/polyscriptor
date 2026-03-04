@@ -891,10 +891,12 @@ GEMINI_MODELS_FALLBACK = [
 ]
 
 CLAUDE_MODELS_FALLBACK = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
     "claude-3-5-sonnet-20241022",
     "claude-3-5-haiku-20241022",
     "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
     "claude-3-haiku-20240307",
 ]
 
@@ -986,10 +988,38 @@ def fetch_gemini_models(api_key: str = None) -> list:
         return GEMINI_MODELS_FALLBACK
 
 
+def fetch_claude_models(api_key: str = None) -> list:
+    """
+    Dynamically fetch available Claude models via Anthropic API.
+
+    Returns:
+        List of Claude model IDs (newest first), or fallback list if fetch fails.
+    """
+    if not CLAUDE_AVAILABLE:
+        return CLAUDE_MODELS_FALLBACK
+
+    try:
+        import os
+        api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return CLAUDE_MODELS_FALLBACK
+
+        client = Anthropic(api_key=api_key)
+        models_page = client.models.list()
+        model_ids = [m.id for m in models_page.data]
+        # Sort newest first (IDs contain dates like -20241022 or version numbers)
+        model_ids.sort(reverse=True)
+        return model_ids if model_ids else CLAUDE_MODELS_FALLBACK
+
+    except Exception as e:
+        print(f"[Claude] Could not fetch models dynamically: {e}")
+        return CLAUDE_MODELS_FALLBACK
+
+
 # Initialize model lists (will be updated when API keys are provided)
 OPENAI_MODELS = OPENAI_MODELS_FALLBACK.copy()
 GEMINI_MODELS = GEMINI_MODELS_FALLBACK.copy()
-CLAUDE_MODELS = CLAUDE_MODELS_FALLBACK.copy()  # Claude doesn't have dynamic listing API yet
+CLAUDE_MODELS = CLAUDE_MODELS_FALLBACK.copy()
 
 
 if __name__ == "__main__":

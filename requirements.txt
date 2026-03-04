@@ -1,7 +1,10 @@
-# Core ML/Deep Learning (CUDA 12.1)
-# Install with: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121
+# Core ML/Deep Learning
+# CPU-only install:  pip install -r requirements.txt
+# GPU install:       pip install -r requirements-gpu.txt && pip install -r requirements.txt
+#                    (requirements-gpu.txt installs the CUDA torch + nvidia-ml-py first;
+#                     pip will then skip torch here because >=2.5.1 is already satisfied)
+torch>=2.5.1
+torchvision>=0.20.1
 transformers==4.45.2
 accelerate==1.5.1
 
@@ -24,6 +27,15 @@ python-Levenshtein>=0.23.0  # Fast edit distance for CER/WER calculation
 
 # Configuration
 pyyaml==6.0.2
+
+# GPU monitoring (optional — in requirements-gpu.txt; code gracefully skips if absent)
+# nvidia-ml-py>=12.0.0
+
+# Web UI (polyscriptor_server.py — browser-based HTR interface)
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9  # multipart/form-data file uploads
+pymupdf>=1.24.0           # PDF → image rendering
 
 # Notebook support (optional)
 jupyter>=1.0.0
