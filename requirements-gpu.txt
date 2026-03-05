@@ -1,7 +1,7 @@
 # GPU requirements — install BEFORE requirements.txt
 #
-# Usage (Linux, CUDA 12.1):
-#   pip install -r requirements-gpu.txt --index-url https://download.pytorch.org/whl/cu121
+# Usage (Linux/Windows, CUDA 12.1):
+#   pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu121
 #   pip install -r requirements.txt
 #
 # After this, pip install -r requirements.txt will see torch>=2.5.1 already satisfied

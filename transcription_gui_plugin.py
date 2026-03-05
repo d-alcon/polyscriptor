@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
     QFontDialog, QToolButton, QSizePolicy, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRectF, QPointF, QSettings
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QFont, QAction, QShortcut, QKeySequence
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QFont, QAction, QShortcut, QKeySequence, QPalette
 
 # Import segmentation components
 from inference_page import LineSegmenter, PageXMLSegmenter, LineSegment
@@ -88,9 +88,10 @@ class CollapsibleSection(QWidget):
         )
         self._header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._header.setStyleSheet(
-            "QToolButton { font-weight: bold; border: 1px solid #999; "
-            "border-radius: 3px; padding: 4px 8px; background: #e8e8e8; }"
-            "QToolButton:hover { background: #d0d0d0; }"
+            "QToolButton { font-weight: bold; border: 1px solid palette(mid); "
+            "border-radius: 3px; padding: 4px 8px; background: palette(button); "
+            "color: palette(buttonText); }"
+            "QToolButton:hover { background: palette(midlight); }"
         )
         self._header.toggled.connect(self._on_toggled)
         layout.addWidget(self._header)
@@ -586,10 +587,10 @@ class TranscriptionGUI(QMainWindow):
         self.main_splitter.setHandleWidth(4)
         self.main_splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #cccccc;
+                background-color: palette(mid);
             }
             QSplitter::handle:hover {
-                background-color: #999999;
+                background-color: palette(midlight);
             }
         """)
         container_layout.addWidget(self.main_splitter)
@@ -2091,10 +2092,62 @@ class TranscriptionGUI(QMainWindow):
         event.accept()
 
 
+def _setup_dark_mode(app: QApplication) -> None:
+    """Apply Fusion style + dark palette when the system is in dark mode.
+
+    Qt's native Windows style has limited dark-mode support.  Switching to the
+    platform-independent Fusion style and providing an explicit palette ensures
+    all widgets (including custom ones) render correctly in both light and dark
+    system themes on Windows, Linux, and macOS.
+    """
+    # Detect dark mode BEFORE calling setStyle() — setStyle("Fusion") resets
+    # the palette to Fusion's light default, so the probe must happen first.
+    is_dark = False
+    try:
+        # Qt 6.5+ (PyQt6 >= 6.6.0): reliable cross-platform detection
+        is_dark = (app.styleHints().colorScheme() == Qt.ColorScheme.Dark)
+    except AttributeError:
+        # Fallback: read OS palette before any style change
+        bg = app.palette().color(QPalette.ColorRole.Window)
+        is_dark = bg.lightness() < 128
+
+    # Switch to Fusion — platform-independent rendering, honours QPalette
+    app.setStyle("Fusion")
+
+    if not is_dark:
+        return  # Light mode — Fusion default palette is fine
+
+    dark = QPalette()
+    c = QColor
+    dark.setColor(QPalette.ColorRole.Window,          c(45,  45,  48))
+    dark.setColor(QPalette.ColorRole.WindowText,      c(220, 220, 220))
+    dark.setColor(QPalette.ColorRole.Base,            c(30,  30,  32))
+    dark.setColor(QPalette.ColorRole.AlternateBase,   c(45,  45,  48))
+    dark.setColor(QPalette.ColorRole.ToolTipBase,     c(45,  45,  48))
+    dark.setColor(QPalette.ColorRole.ToolTipText,     c(220, 220, 220))
+    dark.setColor(QPalette.ColorRole.Text,            c(220, 220, 220))
+    dark.setColor(QPalette.ColorRole.Button,          c(60,  60,  64))
+    dark.setColor(QPalette.ColorRole.ButtonText,      c(220, 220, 220))
+    dark.setColor(QPalette.ColorRole.BrightText,      c(255, 255, 255))
+    dark.setColor(QPalette.ColorRole.Link,            c(100, 160, 220))
+    dark.setColor(QPalette.ColorRole.Highlight,       c(42,  130, 218))
+    dark.setColor(QPalette.ColorRole.HighlightedText, c(255, 255, 255))
+    dark.setColor(QPalette.ColorRole.Midlight,        c(75,  75,  80))
+    dark.setColor(QPalette.ColorRole.Mid,             c(80,  80,  85))
+    dark.setColor(QPalette.ColorRole.Dark,            c(25,  25,  27))
+    dark.setColor(QPalette.ColorRole.Shadow,          c(10,  10,  12))
+    # Disabled-state variants (dimmed)
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText,
+                 QPalette.ColorRole.WindowText):
+        dark.setColor(QPalette.ColorGroup.Disabled, role, c(120, 120, 120))
+    app.setPalette(dark)
+
+
 def main():
     """Main entry point."""
     app = QApplication(sys.argv)
     app.setApplicationName("HTR Transcription Tool")
+    _setup_dark_mode(app)
 
     if not available_engines:
         QMessageBox.critical(

@@ -1,12 +1,41 @@
 # Core ML/Deep Learning
-# CPU-only install:  pip install -r requirements.txt
-# GPU install:       pip install -r requirements-gpu.txt && pip install -r requirements.txt
-#                    (requirements-gpu.txt installs the CUDA torch + nvidia-ml-py first;
-#                     pip will then skip torch here because >=2.5.1 is already satisfied)
+#
+# CPU-only install:
+#   Linux/Mac:  pip install -r requirements.txt
+#   Windows:    pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#               (avoids a DLL load error with the default PyPI torch wheel on CPU-only Windows)
+#
+# GPU install (CUDA 12.1):
+#   pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt
+#   (requirements-gpu.txt installs the CUDA torch + nvidia-ml-py first;
+#    pip will then skip torch here because >=2.5.1 is already satisfied)
+#
+# NOTE for existing environments with torch >2.7:
+#   kraken>=6.0.0 declares torch<2.8.0 in its metadata. If your venv already has a newer
+#   torch that works, install kraken separately: pip install kraken --no-deps
 torch>=2.5.1
 torchvision>=0.20.1
 transformers==4.45.2
 accelerate==1.5.1
+
+# Fine-tuning adapter library (required by Qwen3-VL and Churro engines)
+peft>=0.10.0
+
+# GUI framework (required by transcription_gui_plugin.py and polyscriptor_batch_gui.py)
+PyQt6>=6.6.0
+
+# Line segmentation (Kraken classical + neural blla)
+# NOTE: kraken declares torch<2.8.0 — safe for fresh installs (GPU workflow uses torch 2.5.1).
+#       On existing envs with torch >2.7, install separately: pip install kraken --no-deps
+kraken>=6.0.0
+
+# Commercial vision API clients (Gemini, Claude, GPT-4 Vision, OpenWebUI)
+# These packages are small (~2-3 MB, pure Python) and make the engine config panels
+# visible in the GUI even before API keys are configured.
+openai>=1.0.0
+anthropic>=0.20.0
+google-generativeai>=0.8.0  # NOTE: deprecated by Google; still works; future migration to google-genai
 
 # Data processing
 numpy==1.26.4

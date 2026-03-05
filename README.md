@@ -59,22 +59,34 @@ source htr_env/bin/activate  # Linux/Mac
 **GPU install (CUDA 12.1 — Linux/Windows with NVIDIA GPU):**
 ```bash
 # Install CUDA torch first, then the rest
-pip install -r requirements-gpu.txt --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
 **CPU-only install (no GPU required):**
 ```bash
+# Linux/Mac:
 pip install -r requirements.txt
+
+# Windows (avoids a torch DLL load error on CPU-only machines):
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 ### 2. Launch GUI for inference
 
-**Local usage:**
+**Local usage (Linux/Mac):**
 ```bash
 source htr_env/bin/activate
 python3 transcription_gui_plugin.py
 ```
+
+**Local usage (Windows):**
+```bat
+htr_env\Scripts\activate
+python transcription_gui_plugin.py
+```
+
+> **Note:** The plugin GUI requires `PyQt6` (included in `requirements.txt`). The web UI (`uvicorn web.polyscriptor_server:app`) works without PyQt6.
 
 **Remote server usage (GUI over X11):**
 ```bash
