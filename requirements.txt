@@ -17,7 +17,7 @@
 #   in this file. Install it in a second step AFTER this file, or use a separate venv.
 torch>=2.5.1
 torchvision>=0.20.1
-transformers==4.45.2
+transformers>=5.0.0
 accelerate==1.5.1
 
 # Fine-tuning adapter library (required by Qwen3-VL and Churro engines)
