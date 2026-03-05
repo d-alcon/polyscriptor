@@ -11,9 +11,10 @@
 #   (requirements-gpu.txt installs the CUDA torch + nvidia-ml-py first;
 #    pip will then skip torch here because >=2.5.1 is already satisfied)
 #
-# NOTE for existing environments with torch >2.7:
-#   kraken>=6.0.0 declares torch<2.8.0 in its metadata. If your venv already has a newer
-#   torch that works, install kraken separately: pip install kraken --no-deps
+# Optional: Kraken segmentation (neural blla + classical)
+#   pip install -r requirements-kraken.txt
+#   NOTE: kraken requires numpy~=2.0 and scikit-learn~=1.5, which conflict with the pins
+#   in this file. Install it in a second step AFTER this file, or use a separate venv.
 torch>=2.5.1
 torchvision>=0.20.1
 transformers==4.45.2
@@ -24,11 +25,6 @@ peft>=0.10.0
 
 # GUI framework (required by transcription_gui_plugin.py and polyscriptor_batch_gui.py)
 PyQt6>=6.6.0
-
-# Line segmentation (Kraken classical + neural blla)
-# NOTE: kraken declares torch<2.8.0 — safe for fresh installs (GPU workflow uses torch 2.5.1).
-#       On existing envs with torch >2.7, install separately: pip install kraken --no-deps
-kraken>=6.0.0
 
 # Commercial vision API clients (Gemini, Claude, GPT-4 Vision, OpenWebUI)
 # These packages are small (~2-3 MB, pure Python) and make the engine config panels

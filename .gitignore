@@ -55,6 +55,7 @@ unpacked-datasets/
 *.txt
 !requirements.txt
 !requirements-gpu.txt
+!requirements-kraken.txt
 !README.txt
 
 # Images and media
