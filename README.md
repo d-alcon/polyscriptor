@@ -336,7 +336,7 @@ PaddleOCR uses **ISO language codes** (not script names). Enter the code in the 
 
 ## 🌐 Web UI (Browser-Based Interface)
 
-**Polyscriptor includes a browser-based web interface** — run inference on a remote GPU server and interact from any browser, no X11 forwarding or local install needed.
+**Polyscriptor includes a browser-based web interface** — run inference locally or on a remote server and interact from any browser. No X11 forwarding needed; when running on a remote server, no local Python install is required either.
 
 ### Quick Start
 
