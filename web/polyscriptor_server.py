@@ -830,25 +830,34 @@ async def upload_image(file: UploadFile = File(...)):
         if not PDF_AVAILABLE:
             raise HTTPException(400, "PDF support requires PyMuPDF. Install with: pip install pymupdf")
         try:
-            mat = _fitz.Matrix(150 / 72, 150 / 72)
-            doc = _fitz.open(stream=content, filetype="pdf")
-            pages_out = []
-            for i, page in enumerate(doc):
-                pix = page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
-                pil_page = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                stem = Path(filename).stem
-                page_filename = f"{stem}_page{i+1:03d}.png"
-                save_path = UPLOAD_DIR / f"{uuid.uuid4()}.png"
-                pil_page.save(save_path)
-                pid = _register_image(pil_page, page_filename, save_path)
-                pages_out.append({
-                    "image_id": pid,
-                    "filename": page_filename,
-                    "width": pil_page.width,
-                    "height": pil_page.height,
-                    "page": i + 1,
-                })
-            doc.close()
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _render_pdf(data: bytes, stem: str) -> list:
+                mat = _fitz.Matrix(150 / 72, 150 / 72)
+                doc = _fitz.open(stream=data, filetype="pdf")
+                results = []
+                for i, page in enumerate(doc):
+                    pix = page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
+                    pil_page = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    page_filename = f"{stem}_page{i+1:03d}.png"
+                    save_path = UPLOAD_DIR / f"{uuid.uuid4()}.png"
+                    pil_page.save(save_path)
+                    pid = _register_image(pil_page, page_filename, save_path)
+                    results.append({
+                        "image_id": pid,
+                        "filename": page_filename,
+                        "width": pil_page.width,
+                        "height": pil_page.height,
+                        "page": i + 1,
+                    })
+                doc.close()
+                return results
+
+            stem = Path(filename).stem
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pages_out = await loop.run_in_executor(pool, _render_pdf, content, stem)
             return {
                 "is_pdf": True,
                 "filename": filename,

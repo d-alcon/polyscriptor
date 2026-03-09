@@ -43,7 +43,7 @@ except ImportError:
     PDF_AVAILABLE = False
 
 
-def pdf_to_images(pdf_path: Path, dpi: int = 150) -> List[Image.Image]:
+def pdf_to_images(pdf_path: Path, dpi: int = 300) -> List[Image.Image]:
     """Render each page of a PDF to a PIL Image at the given DPI."""
     if not PDF_AVAILABLE:
         raise RuntimeError("PyMuPDF not installed. Install with: pip install pymupdf")

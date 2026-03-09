@@ -80,7 +80,17 @@ export function initBatchPanel() {
                 existing.add(page.filename);
             }
         }
-        if (batch.items.length > 0) { renderQueue(); previewFirstBatchItem(); }
+        if (batch.items.length > 0) {
+            renderQueue();
+            // PDF pages are already uploaded — always preview the first one directly,
+            // bypassing the state.imageId guard in previewFirstBatchItem().
+            const first = batch.items[0];
+            if (first && first.preUploaded && first.imageId) {
+                batch.currentIndex = 0;
+                emit('batch-item-start', { imageId: first.imageId, filename: first.filename });
+                updateNavButtons();
+            }
+        }
     });
 
     $('btn-process-batch').addEventListener('click', processBatch);
@@ -189,7 +199,22 @@ async function previewFirstBatchItem() {
             const resp = await fetch('/api/image/upload', { method: 'POST', body: fd });
             if (!resp.ok) return;
             const data = await resp.json();
-            if (data.is_pdf) return;
+            if (data.is_pdf) {
+                // Expand PDF into page items immediately (same as processSingleItem does)
+                const newItems = data.pages.map(p => ({
+                    file: null, imageId: p.image_id, status: 'pending',
+                    lines: [], filename: p.filename, preUploaded: true,
+                }));
+                batch.items.splice(0, 1, ...newItems);
+                renderQueue();
+                const firstPage = batch.items[0];
+                if (firstPage) {
+                    batch.currentIndex = 0;
+                    emit('batch-item-start', { imageId: firstPage.imageId, filename: firstPage.filename });
+                    updateNavButtons();
+                }
+                return;
+            }
             first.imageId = data.image_id;
             first.preUploaded = true;
             batch.currentIndex = 0;
@@ -513,6 +538,11 @@ function transcribeSSE(imageId, segMethod, segDevice, maxColumns, splitWidthFrac
                         // Only stream to panel when user is watching this item
                         if (batch.currentIndex === batch.processingIndex) emit('sse-progress', data);
                     } else if (event === 'segmentation') {
+                        // Store bboxes/regions so loadBatchItem can restore them later
+                        if (batch.items[batch.processingIndex]) {
+                            batch.items[batch.processingIndex].bboxes  = data.bboxes  || [];
+                            batch.items[batch.processingIndex].regions = data.regions || [];
+                        }
                         if (batch.currentIndex === batch.processingIndex) emit('sse-segmentation', data);
                     } else if (event === 'complete') {
                         resolve(lines);
@@ -537,6 +567,11 @@ function loadBatchItem(index) {
     batch.userNavigated = true;  // user left auto-advance mode
     emit('batch-item-start', { imageId: item.imageId, filename: item.filename });
     updateNavButtons();
+    // Restore segmentation data so line-click highlighting works.
+    // batch-item-start clears currentBboxes in the image viewer; re-populate them here.
+    const bboxes  = item.bboxes  || [];
+    const regions = item.regions || [];
+    emit('sse-segmentation', { num_lines: item.lines.length, bboxes, regions, source: 'batch-restore' });
     // Re-populate state.lines so exports and confidence filter work
     state.lines = item.lines.map((l, i) => ({ ...l, index: i }));
     // Re-emit each line to rebuild the transcription panel

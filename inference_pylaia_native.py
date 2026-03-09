@@ -127,7 +127,16 @@ class PyLaiaInference:
 
         # Find symbols file
         if syms_path is None:
-            # Look in data/pylaia_glagolitic/syms.txt
+            # First: look alongside the checkpoint for symbols.txt or syms.txt
+            model_dir = self.checkpoint_path.parent
+            for _candidate in ("symbols.txt", "syms.txt"):
+                _candidate_path = model_dir / _candidate
+                if _candidate_path.exists():
+                    syms_path = _candidate_path
+                    logger.info(f"Found symbols file alongside checkpoint: {syms_path}")
+                    break
+        if syms_path is None:
+            # Last-resort fallback
             syms_path = Path("data/pylaia_glagolitic/syms.txt")
 
         self.syms_path = Path(syms_path)
@@ -364,3 +373,46 @@ PYLAIA_MODELS = {
         "description": "PyLaia model - old Glagolitic training (no spaces)"
     }
 }
+
+
+def _scan_pylaia_models(models_dir: str = "models") -> None:
+    """Scan models/ for CRNN-CTC checkpoints not already in PYLAIA_MODELS.
+
+    Any subdirectory containing best_model.pt that isn't already registered
+    is added automatically, using its folder name as the display key.
+    A co-located symbols.txt or syms.txt is used as the symbols file.
+    This lets users drop a trained model into models/ without editing the registry.
+    """
+    models_path = Path(models_dir)
+    if not models_path.is_dir():
+        return
+
+    registered = {
+        str(Path(info["checkpoint"])) if isinstance(info, dict) else str(Path(info))
+        for info in PYLAIA_MODELS.values()
+    }
+
+    for checkpoint in sorted(models_path.glob("*/best_model.pt")):
+        checkpoint_str = str(checkpoint)
+        if checkpoint_str in registered:
+            continue
+        model_dir = checkpoint.parent
+        folder_name = model_dir.name
+        if folder_name in PYLAIA_MODELS:
+            continue
+        syms_path = None
+        for candidate in ("symbols.txt", "syms.txt"):
+            candidate_path = model_dir / candidate
+            if candidate_path.exists():
+                syms_path = str(candidate_path)
+                break
+        PYLAIA_MODELS[folder_name] = {
+            "checkpoint": checkpoint_str,
+            "syms": syms_path,
+            "description": f"CRNN-CTC model (auto-discovered): {folder_name}",
+        }
+        logger.debug(f"Auto-discovered CRNN-CTC model: {folder_name}")
+
+
+# Populate registry with any models not hard-coded above
+_scan_pylaia_models()
